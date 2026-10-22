@@ -34,7 +34,7 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
  	// Set KVA of boot args as first arg
  	add		x0, x20, x22
  	sub		x0, x0, x23
- 	
+ 
 +#if defined(NABU)
 +	/* 	Stage 5: reached the return into arm_init; magenta at x=512 */
 +	stp	x0, x1, [sp, #-16]!
