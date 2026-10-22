@@ -1,0 +1,20 @@
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -820,3 +820,16 @@
+ 	    SecureDTGetProperty(entry, "reg", (void const **)&reg, &size) != kSuccess || size < 16) {
++		/*
++		 * The nabu boot shim hands over ABL's live FDT, which has no
++		 * nabu-fbcon node, so the lookup above always fails there and
++		 * kprintf used to end up with no console at all.  Fall back to
++		 * the Xiaomi Pad 5 panel (1600x2560, 6400 B/row) instead.
++		 */
++		fbcon_width = 1600;
++		fbcon_height = 2560;
++		fbcon_stride = 6400;
++		fbcon_base = (volatile uint32_t *)ml_io_map_wcomb(0x9c000000, 0x1700000);
++		if (fbcon_base != NULL) {
++			register_serial_functions(&nabu_fbcon_serial_functions);
++		}
+ 		return;
+ 	}
