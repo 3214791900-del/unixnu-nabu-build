@@ -649,3 +649,62 @@ reply 解析异常，应优先怀疑此处。
 
 IOKit 初始化时报 kext 类名重复。属于 **prelink 打包**（`kits/NativePrelink` 子模块）
 层面的问题，不是内核逻辑。下一步：读出重复的 kext 名，核对 prelink 清单。
+
+---
+
+## 15. QEMU 快速迭代环境（今天建成）
+
+### 为什么
+
+CI 一次内核构建 **8.1 分钟**（总 9.3 分钟里 87% 是编译），
+每轮刷机再加快 2 分钟 + 人工拍照判读。没有 macOS 主机就没法本地编，
+所以只能把**验证**这一半搬到本地：**QEMU 45 秒一轮，串口日志直接可读**。
+
+### 组成部分（全部已就位）
+
+| 件 | 位置 | 说明 |
+|---|---|---|
+| QEMU | `C:\Program Files\qemu` | 11.1.0，含 `edk2-aarch64-code.fd` |
+| Mu_Basecore | `UniXNU/package/Mu_Basecore` | EDK2 分支 `release/202608`，8.3k 文件 |
+| UniXNU.efi | `package/Build/Out/AARCH64-DEBUG/UniXNU.efi` | 94 KB，`./build.sh -b DEBUG -t GCC` |
+| DarwinBoot.efi | `package/Build/UniXNU/DEBUG_GCC/AARCH64/DarwinBoot.efi` | 36 KB，提供 XNU loader protocol |
+| ESP | `C:\Temp\qemu-test\esp` | `EFI/BOOT/BOOTAA64.EFI` + `EFI/UniXNU/{Drivers,Payloads,unixnu.toml}` |
+
+### 关键坑
+
+- `build.sh` 里 `PACKAGES_PATH` 原本只有 `package` + `edk2`；
+  `DarwinBootPkg` 在 `drivers/DarwinBoot/` 下，需要
+  `$ROOT/../drivers/DarwinBoot:$ROOT/../drivers:$ROOT:$EDK2`
+- `DarwinBoot.dsc` 里的 `Test/Validation.inf` 路径是相对 `DarwinBootPkg/` 写的，
+  实际文件在 `drivers/DarwinBoot/Test/`，会解析失败，已移除
+- EDK2 的 `build` 失败时只打印 `- Failed -`，要 `-d 9` 才能看到原因
+- **WSL 调 Windows QEMU 时，QEMU 命令行里的路径必须是 Windows 形式**
+  （`C:/...`），只有日志文件留在 WSL 侧
+- `-m 4096` 时 DarwinBoot 报 `boot refused: Out of Resources`，**8 GB 才够**
+
+### QEMU 里已验证的事实
+
+```
+UNIXNU: UniXNU 0.1.0 starting as application, firmware EDK II
+UNIXNU: driver \EFI\UniXNU\Drivers\DarwinBoot.efi (config): started
+DARWINBOOT: loader v2 installed EL1
+DARWINBOOT: ARM64 va=0xFFFFFFF00427C000 pa=0x4807C000 entry=0x4B1EB488
+DARWINBOOT: hand-off to the kernel
+```
+
+**内核 entry code 跑了（顶部绿条），异常 trace 显示内核在正常执行：**
+852 个异常，尾部全是 `Taking exception 5 [IRQ]`，`SPSR 0x205`（EL1h），
+**没有任何 abort**。所以内核在 QEMU 里是活的，只是没往串口输出。
+
+### 待办
+
+- `nabu_mark_putc` 加 **PL011 tee**（`0x9000000`）后，QEMU 才能抓到内核文本；
+  真机上该地址未映射，写入被缺页处理吞掉，不影响 fb 路径
+- 串口通了之后，`-d int` 的 trace 就不需要了
+
+### 全自动
+
+- `C:\Temp\auto\run.ps1` —— 一次：等最新构建 → 下载 → 刷 ESP → QEMU → 摘要
+- `C:\Temp\auto\loop.ps1` —— 循环：触发构建 → 等 → 下载 → QEMU → 分析 → 下一轮，
+  每轮日志存 `C:\Temp\auto\rounds\<n>\`
+- CI 侧已加 `actions/cache`（`xnu-work/build`），下一次起编译应变成增量
