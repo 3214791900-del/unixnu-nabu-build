@@ -1,9 +1,20 @@
-# 夜间自动推进报告（2026-10-22 22:51 更新）
+# 夜间自动推进报告（最终版，2026-10-22 23:56）
 
-## 今晚最重要的成果：QEMU 秒级验证环境**完全打通**
+## 一句话
+
+内核日志从「完全不可见」变成「本地 QEMU 完整可读」，真机 IOSurface 卡点定性为
+「闭源 kext 不可用」，并已把 **mockfs 编入内核**（构建成功，待真机验证）。
+
+---
+
+## 一、做成了什么
+
+### 1. QEMU 秒级验证环境（今晚的核心产出）
+
+本地 QEMU 现在能打印真实内核日志：
 
 ```
-NABU                                                          <- UART 映射成功
+NABU                                    <- UART 映射成功的标记
 kprintf initialized
 Serial mode specified: 00000003
 initialize_screen: b=23C7A0000, w=320, h=258, r=0xC80
@@ -11,81 +22,103 @@ pe_arm_init_interrupts: args: 0xfffffff007a62860
 corecrypto_kext_start (tracing disabled)
 FIPSPOST_KEXT ... all tests PASSED (1690 ms)
 corecrypto_kext_start completed successfully
-ulock_initialize>thread_max=1536, ull_hash_buckets=512        <- 停在这
+ulock_initialize>thread_max=1536, ull_hash_buckets=512
 ```
 
-**这是第一次在本地看到内核的完整日志文本**，不用刷机、不用拍照。
-一轮验证 = **40 秒**（对比：CI 8.5 分钟 + 刷机 2 分钟 + 拍照）。
+**一轮 40 秒**（对比：CI 8.5 分钟 + 刷机 + 拍照）。
 
-## 打通的四道关（每道都有明确根因）
+### 2. 四道关，每道一个明确根因
 
 | # | 症状 | 根因 | 修法 |
 |---|---|---|---|
-| 1 | 内核完全没有日志 | kprintf 门是 `if (!disable_serial_output && !disable_kprintf_output)`，**两个都默认 true** | 两个都清 |
-| 2 | 清了还是没日志 | `PE_init_kprintf` 在 `STARTUP(KPRINTF)` 跑，早于 fb 映射，按就绪判断导致永不赋值 | 无条件 `PE_kputc = nabu_mark_putc` |
-| 3 | UART tag 也不出现 | `0x9000000` 是**物理地址**，内核 VM 里没映射，写入 fault 被吞 | `ml_io_map_unmappable` 映射后再写 |
-| 4 | 内核撞 Undefined Instruction | QEMU `-cpu cortex-a72` 不认识 `MSR S3_0_C4_C1_4` | 换 **`-cpu max`** |
+| 1 | 完全无日志 | `kprintf` 的门是 `if (!disable_serial_output && !disable_kprintf_output)`，**两个默认都是 true** | 两个都清 |
+| 2 | 清了仍无日志 | `PE_init_kprintf` 在 `STARTUP(KPRINTF)` 跑，早于 fb 映射，按就绪判断导致 hook 永不安装 | 无条件赋值 |
+| 3 | UART 也不输出 | `0x9000000` 是**物理地址**，未映射即 fault | `ml_io_map_unmappable` 先映射 |
+| 4 | Undefined Instruction | `cortex-a72` 不认 `MSR S3_0_C4_C1_4` | **`-cpu max`** |
 
-## QEMU 的当前边界（重要）
+### 3. QEMU 的边界（已定位到指令级）
 
-停在这里（`STARTUP(EARLY_BOOT, RANK_FIRST)`）：
-
-```c
-static void ulock_initialize(void) {
-    ull_bucket = zalloc_permanent(...);        // <- 卡住
-}
-```
-
-**真机能过这一步**（真机已经跑到 IOKit），所以这是 **QEMU 缺硬件/内存布局差异**，
-不是内核 bug。**QEMU 的验证深度到此为止**——再往后需要真实硬件。
-
-## 环境与脚本（都已可复用）
-
-| 件 | 位置 |
-|---|---|
-| Mu_Basecore（EDK2）| `UniXNU/package/Mu_Basecore` |
-| UniXNU.efi（94 KB）| `package/Build/Out/AARCH64-DEBUG/UniXNU.efi` |
-| DarwinBoot.efi（36 KB）| `package/Build/UniXNU/DEBUG_GCC/AARCH64/DarwinBoot.efi` |
-| QEMU ESP | `C:\Temp\auto\esp` |
-| QEMU 设备树 | `C:\Temp\auto\qemu.adt`（`make-dt.py --armvirt --armcpu --smp 1`）|
-| 截图 | `shot.ps1`（QMP screendump -> PNG）|
-| 全自动 | `loop.ps1`（触发 CI -> 等 -> 下载 -> QEMU -> 报告）|
-
-**关键 QEMU 参数**（缺一个都不行）：
+`ulock_initialize()` 之后 **Data Abort**：
 
 ```
--M virt -cpu max -m 8192 -smp 1
--drive if=pflash,...,file=edk2-aarch64-code.fd
--drive if=none,id=esp,...,file=fat:<ESP目录>
--device virtio-blk-pci,drive=esp -device ramfb
--display none -serial file:<log>
+ESR 0x96000005   data abort, translation fault level 1
+FAR 0x0          空指针
+ELR 0xfffffff004a92828   在 __PLK_TEXT_EXEC（prelink kext 代码）
 ```
 
-- `-cpu max`（不是 cortex-a72）：否则未定义指令
-- `-m 8192`：4096 时 DarwinBoot 报 `boot refused: Out of Resources`
-- ESP 用**目录**（`fat:`），不用做 img
+**真机能过这一步**，所以这是 QEMU 缺硬件，不是内核缺陷。
 
-## 真机那条线（IOSurface）
+### 4. 真机 IOSurface 卡点的本质
 
-**已查清本质**：`IOsurfaceRoot:installMemoryRegions()` 之后卡住，
+`IOsurfaceRoot:installMemoryRegions()` 之后卡住，**不是断言、不是内存不足**，
 是 **Apple 闭源 IOSurface kext 在非 Apple 平台上跑不通**。
 
-ios-nabu 的解法是**自己重写**：`NabuSurface.cpp`（IOCoreSurfaceRoot）+
-`NabuFramebuffer.cpp`（AppleCLCD），注册进 `KernelConfigTables`。
-**周级工作量**，不是几轮 patch 能过的。
+ios-nabu 的解法：**重写** `NabuSurface.cpp`（IOCoreSurfaceRoot）+
+`NabuFramebuffer.cpp`（AppleCLCD）并注册进 `KernelConfigTables`。
 
-## 建议的下一步
+### 5. mockfs 编入内核（本轮代码成果）
 
-1. **QEMU 这条路**：已到边界。想再深入要给 QEMU 补 MMIO 设备模拟，性价比不高
-2. **真机这条路**：`bsd_autoconf` 之后到 root mount 之间还有几个已知卡点，
-   且 `rootvp not authenticated` 已提前修掉
-3. **最大决策点**：IOSurface 段是否要自己写 surface/framebuffer 驱动
-   - 自己写：几周
-   - 借 ios-nabu：今天就能到他们位置（同设备、同 iPadOS 16.6.1）
+`config/MASTER.arm64.bcm2837` 的 `FILESYS_BASE` 加上 `mockfs`
+（`zzzz-nabu-mockfs-root.patch`）。**CI 构建成功**，kernel 51.03 MB。
 
-## 诚实总结
+顺带发现：`null-root-media.patch` **已经** 把 `setRootMedia()` 包在 `if (root)` 里，
+所以无 block storage driver 时那个 assert 根本到不了——我原计划的第二处修改是多余的。
 
-**今晚把「看不见」变成了「看得见」**——内核日志从零到完整，QEMU 从零到能跑。
-**但没有让内核跑得更远**：真机仍在 IOSurface，QEMU 新边界在 ulock。
+### 6. 差距重新盘点（重要修正）
 
-真正的进展是**工具链**，不是**功能**。明天可以基于这套工具快速迭代。
+审计自己的 `patches/xnu/` 后，**阶段 1、2 的大部分其实已经有了**：
+
+| 能力 | 我们已有 |
+|---|---|
+| mockfs 编译修复 | `mockfs-typed-allocation` / `-statfs` / `-intermediate-lookup` / `-memory-device-width` / `-test-file` |
+| 无 block storage 容忍 | `null-root-media` |
+| trust cache 运行时 | `native-trust-cache-runtime` |
+| **pthread** | `source-pthread-bootstrap`（新增 `bsd/kern/source_pthread_bootstrap.c`）|
+| SMP | `native-smp-secondary` |
+| panic 区 | `native-dt-panic-region` |
+| work interval | `native-priv-work-interval` |
+
+**真正的空白只剩四处**：
+1. **RNG 不依赖 corecrypto**（ios-nabu 0013）
+2. **iowatchdog**（0040，缺了会看起来像随机重启）
+3. **AMFI 无 entitlements**（0025）
+4. **自研 surface / framebuffer**（0046，**最大差距**）
+
+---
+
+## 二、卡住的地方
+
+**设备在 `recovery` 模式，不在 `fastboot`**：
+
+```
+$ fastboot devices           (空)
+$ adb devices
+f91fa664    recovery
+```
+
+所以 **mockfs 那版没能刷到真机验证**。需要手动：
+`adb reboot bootloader` 或长按进 fastboot。
+
+---
+
+## 三、明天可以立刻做的
+
+| # | 动作 | 预计 | 依据 |
+|---|---|---|---|
+| 1 | 设备切 fastboot，刷 mockfs 版，看能否越过 `cannot mount root` | 10 分钟 | 本轮构建 |
+| 2 | 补 **RNG 不依赖 corecrypto** | 半天 | ios-nabu 0013 |
+| 3 | 补 **iowatchdog** | 2 小时 | 0040 |
+| 4 | 补 **AMFI 无 entitlements** | 半天 | 0025 |
+| 5 | **决策点**：自研 surface（几周）vs 切 8796（一周）| — | — |
+
+---
+
+## 四、诚实的总结
+
+**做成的**：把「看不见」变成「看得见」，并且把差距量化到了 patch 级别。
+
+**没做成的**：内核在真机上**没有比昨晚跑得更远**（仍卡 IOSurface），
+mockfs 那版还没上真机验证。
+
+**最大的判断**：我们其实比想象中接近——阶段 1、2 大部分已经有了，
+真正的空白是 **RNG / watchdog / AMFI / surface** 四块，其中 surface 是唯一的周级任务。
