@@ -1,11 +1,11 @@
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -752,3 +752,28 @@ common_start:
+@@ -752,3 +752,28 @@
  #endif /* !VMAPPLE && !NABU */
  
 +#if defined(NABU)
-+	/* 	Stage 2: MMU+caches on; blue at x=256 proves the post-MMU V=P write works */
++	/* 	Stage 2: MMU+caches on; blue at x=256 */
 +	stp	x0, x1, [sp, #-16]!
 +	stp	x2, x3, [sp, #-16]!
 +	stp	x4, x5, [sp, #-16]!
@@ -61,3 +61,19 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +#endif
 +
  #if KASAN
+@@ -810,4 +860,15 @@
+ 	// Return to arm_init()
+ 	ret
++#if defined(NABU)
++	/*
++	 * Debug: branch to arm_init's V=P address instead of the KVA in lr.
++	 * If NABU EARLY output appears this way, lr / the KVA bootstrap
++	 * mapping is what kills the hand-off; if it still dies, suspect SP.
++	 */
++	adrp	x9, EXT(arm_init)@page
++	add		x9, x9, EXT(arm_init)@pageoff
++	br		x9
++#else
++#endif
+ 
+ Ltrampoline:
