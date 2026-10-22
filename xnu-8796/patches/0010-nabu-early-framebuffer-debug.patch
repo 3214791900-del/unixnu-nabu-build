@@ -96,10 +96,11 @@ index ccbb188..777aca4 100644
  
 +#if defined(NABU)
 +	/* Stage 0: white 64x32 band, no stack or page tables needed. */
-+	MOV64	x0, (0x9c000000 + 2368 * 4320)
++	/* Xiaomi Pad 5: 1600x2560, 6400 B/row. Bottom 32 rows start at 2528. */
++	MOV64	x0, (0x9c000000 + 2528 * 6400)
 +	mov		w1, #-1
 +	mov		x2, #32
-+	mov		x4, #4320
++	mov		x4, #6400
 +Lnabu_mark_row:
 +	mov		x3, #64
 +	mov		x5, x0
