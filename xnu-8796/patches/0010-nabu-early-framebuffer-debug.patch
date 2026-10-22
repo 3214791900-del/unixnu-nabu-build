@@ -159,7 +159,7 @@ index 0000000..8f4c808
 +#include <kern/misc_protos.h>
 +
 +#define EARLY_FB ((volatile uint32_t *)(uintptr_t)0x9c000000)
-+#define EARLY_WIDTH 1600u	/* Pad5 1600x2560; patch shipped 1080 (RN10Pro) */
++#define EARLY_WIDTH 1600u
 +#define EARLY_HEIGHT 2560u
 +#define EARLY_STRIDE (6400u / 4)
 +#define EARLY_SCALE 2u
