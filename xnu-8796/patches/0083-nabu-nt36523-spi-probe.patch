@@ -1988,10 +1988,10 @@ diff --git a/iokit/Kernel/arm/NabuFramebuffer.cpp b/iokit/Kernel/arm/NabuFramebu
 +		fb->fProbeTicks = 0;
 +		if (fb->fProbeCount < 4) {
 +			fb->fProbeCount++;
-+			nabu_surface_probe_all();
++			/* nabu_surface_probe_all() 未实现，调试探测跳过 */
 +		}
 +	}
-+	if (fb->fFallback && nabu_surface_bgra_hint_id() != 0) {
++	if (fb->fFallback && 0) { /* nabu_surface_bgra_hint_id() 未实现，回退重绘禁用 */
 +		if ((++fb->fFallbackTicks % 6) == 0) {
 +			IOLockLock(fb->fLock);
 +			fb->fDirty = true;
@@ -2079,7 +2079,7 @@ diff --git a/iokit/Kernel/arm/NabuFramebuffer.cpp b/iokit/Kernel/arm/NabuFramebu
 +void
 +AppleCLCD::present_fallback(void)
 +{
-+	uint32_t id = nabu_surface_bgra_hint_id();
++	uint32_t id = 0; /* nabu_surface_bgra_hint_id() 未实现，回退呈现禁用 */
 +	if (id == 0) {
 +		return;
 +	}
