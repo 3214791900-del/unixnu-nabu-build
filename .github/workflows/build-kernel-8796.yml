@@ -82,9 +82,17 @@ jobs:
         env:
           MAKEFLAGS: ${{ inputs.keep_going == 'false' && '' || '-k' }}
         run: |
+          # pipefail is essential: without it `tee` masks build.sh's exit code and
+          # a failed compile still reports a green run with an empty out/ dir.
+          set -o pipefail
           bash build.sh 2>&1 | tee build.log
-          echo "=== exit: $? ==="
-          grep -c ' error: ' build.log || true
+          rc=$?
+          echo "=== build.sh exit: $rc ==="
+          if [ "$rc" -ne 0 ]; then
+            echo "--- first compile errors ---"
+            grep -E 'error:|Error [0-9]|Undefined symbol' build.log | head -40 || true
+          fi
+          exit "$rc"
 
       - name: Collect
         if: always()
