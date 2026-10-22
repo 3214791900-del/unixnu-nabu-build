@@ -1,0 +1,22 @@
+diff --git a/osfmk/arm64/nabu_early.c b/osfmk/arm64/nabu_early.c
+--- a/osfmk/arm64/nabu_early.c
++++ b/osfmk/arm64/nabu_early.c
+@@ -85,7 +85,16 @@
+ void
+ nabu_early_mark(unsigned int stage, const char *label)
+ {
+-	if (early_disabled || stage > 20) {
++	/* The kernel's .bss is not cleared yet when arm_init runs, so the
++	 * statics above can still hold garbage.  Pin the console state, and
++	 * repair early_fb if .data had not been loaded either. */
++	if ((uintptr_t)early_fb < 0x1000) {
++		early_fb = (volatile uint32_t *)(uintptr_t)0x9c000000;
++	}
++	early_disabled = 0;
++	early_started = 1;
++	early_row = stage;
++	early_col = 0;
++	if (stage > 20) {
+ 		return;
+ 	}
+ 	uint32_t color = 0xff00ff00u | ((stage & 7u) * 32u << 16);
