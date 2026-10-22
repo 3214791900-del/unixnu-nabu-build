@@ -1,16 +1,11 @@
 diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 --- a/osfmk/arm64/start.s
 +++ b/osfmk/arm64/start.s
-@@ -752,3 +752,33 @@ common_start:
+@@ -752,3 +752,28 @@ common_start:
  #endif /* !VMAPPLE && !NABU */
  
 +#if defined(NABU)
-+	/*
-+	 * Stage 2: MMU + caches are now live. A blue block at x=256, right
-+	 * next to the Stage-0 white block at x=0, proves the framebuffer is
-+	 * still reachable through the bootstrap V=P mapping once translations
-+	 * are enabled. White-only means the post-MMU write is what dies.
-+	 */
++	/* 	Stage 2: MMU+caches on; blue at x=256 proves the post-MMU V=P write works */
 +	stp	x0, x1, [sp, #-16]!
 +	stp	x2, x3, [sp, #-16]!
 +	stp	x4, x5, [sp, #-16]!
@@ -35,3 +30,34 @@ diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
 +#endif
 +
  #if (!CONFIG_KERNEL_INTEGRITY || (CONFIG_KERNEL_INTEGRITY && !defined(KERNEL_INTEGRITY_WT)))
+@@ -793,5 +818,30 @@
+ 	// Set KVA of boot args as first arg
+ 	add		x0, x20, x22
+ 	sub		x0, x0, x23
+ 	
++#if defined(NABU)
++	/* 	Stage 5: reached the return into arm_init; magenta at x=512 */
++	stp	x0, x1, [sp, #-16]!
++	stp	x2, x3, [sp, #-16]!
++	stp	x4, x5, [sp, #-16]!
++	MOV64	x0, (0x9c000000 + 2528 * 6400 + 2048)
++	mov	w1, #0xFFFF00FF
++	mov	x2, #32
++	mov	x4, #6400
++Lnabu_st5_row:
++	mov	x3, #64
++	mov	x5, x0
++Lnabu_st5_pix:
++	str	w1, [x5], #4
++	subs	x3, x3, #1
++	b.ne	Lnabu_st5_pix
++	add	x0, x0, x4
++	subs	x2, x2, #1
++	b.ne	Lnabu_st5_row
++	dsb	sy
++	ldp	x4, x5, [sp], #16
++	ldp	x2, x3, [sp], #16
++	ldp	x0, x1, [sp], #16
++#endif
++
+ #if KASAN
