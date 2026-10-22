@@ -80,15 +80,29 @@ sandbox 策略、crash 采样、HFS rename、process sampler、AKS、fb 节流�
 
 ---
 
-## 三、我们的实际差距
+## 三、我们的实际差距（已按实际 patch 盘点修正）
 
-| 阶段 | ios-nabu | 我们 | 差距 |
+初版把差距估得过重。清点 `patches/xnu/` 后，情况是：
+
+| 能力 | 我们已有的 patch | ios-nabu 对应 | 状态 |
 |---|---|---|---|
-| 1. 内核启动 | ✅ 20 个补丁 | 🟡 fb/console 打通，其余缺 | 缺 RNG、trust cache、DT platform expert、**pthread 方式错了** |
-| 2. 根文件系统 | ✅ mockfs→UFS | ❌ 无根、NativeUfs 已关 | **完全缺失** |
-| 3. 运行时 | ✅ watchdog 等 | ❌ | 缺失 |
-| 4. 显示 | ✅ 自研 surface | ❌ 卡在闭源 IOSurface | **最大差距** |
-| 5. 外设 | ✅ 触摸/USB/SMP | ❌ | 远期 |
+| mockfs 编译修复 | `mockfs-typed-allocation` / `mockfs-statfs` / `mockfs-intermediate-lookup` / `mockfs-memory-device-width` / `mockfs-test-file` | 0021/0024 | ✅ **已做** |
+| 无 block storage 容忍 | `null-root-media` | 0021 | ✅ **已做** |
+| trust cache 运行时 | `native-trust-cache-runtime` | 0015 | ✅ **已做** |
+| **pthread** | `source-pthread-bootstrap`（新增 `bsd/kern/source_pthread_bootstrap.c`）| 0019 | ✅ **已有方案** |
+| SMP | `native-smp-secondary` | 0065/0078 | ✅ 已有 |
+| panic 区 | `native-dt-panic-region` | 0066 | ✅ 已有 |
+| work interval | `native-priv-work-interval` / `native-work-interval-soft-fail` | 0064 | ✅ 已有 |
+| 平台专家 / DT | `armvirt-platform-personality` / `source-machine-layer` / `sheng-platform-power` | 0016–0018 | 🟡 部分 |
+| **mockfs 编入内核** | `zzzz-nabu-mockfs-root`（本轮新增）| 0021 | 🟡 **本轮验证中** |
+| **RNG 不依赖 corecrypto** | — | 0013/0014 | ❌ 缺 |
+| **iowatchdog** | — | 0040/0045 | ❌ 缺 |
+| **AMFI 无 entitlements** | — | 0025 | ❌ 缺（或已由 `public-entitlements-header` 部分覆盖）|
+| **自研 surface / framebuffer** | — | 0046 | ❌ 缺，**仍是最大差距** |
+| 触摸 / USB / 显示电源 | — | 0058–0083 | ❌ 缺，远期 |
+
+**结论：阶段 1 和阶段 2 的绝大部分我们已经有了**，真正的空白集中在
+**RNG（0013）、iowatchdog（0040）、AMFI（0025）和 surface/framebuffer（0046）**。
 
 ---
 
