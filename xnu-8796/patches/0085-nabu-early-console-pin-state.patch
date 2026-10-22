@@ -1,7 +1,7 @@
 diff --git a/osfmk/arm64/nabu_early.c b/osfmk/arm64/nabu_early.c
 --- a/osfmk/arm64/nabu_early.c
 +++ b/osfmk/arm64/nabu_early.c
-@@ -85,7 +85,16 @@
+@@ -85,7 +85,17 @@
  void
  nabu_early_mark(unsigned int stage, const char *label)
  {
