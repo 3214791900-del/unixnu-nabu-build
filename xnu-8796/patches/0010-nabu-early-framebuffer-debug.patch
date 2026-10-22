@@ -159,9 +159,11 @@ index 0000000..8f4c808
 +#include <kern/misc_protos.h>
 +
 +#define EARLY_FB ((volatile uint32_t *)(uintptr_t)0x9c000000)
-+#define EARLY_WIDTH 1080u
-+#define EARLY_HEIGHT 2400u
-+#define EARLY_STRIDE (4320u / 4)
++/* Xiaomi Pad 5 panel: 1600x2560, 6400 bytes per row, 32 bpp.
++ * (The original patch carried the Redmi Note 10 Pro 1080x2400 geometry.) */
++#define EARLY_WIDTH 1600u
++#define EARLY_HEIGHT 2560u
++#define EARLY_STRIDE (6400u / 4)
 +#define EARLY_SCALE 2u
 +#define EARLY_CELL_W (8u * EARLY_SCALE)
 +#define EARLY_CELL_H (16u * EARLY_SCALE)
