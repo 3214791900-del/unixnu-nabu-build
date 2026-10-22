@@ -14,7 +14,7 @@ diff --git a/osfmk/arm64/nabu_early.c b/osfmk/arm64/nabu_early.c
 +	}
 +	early_disabled = 0;
 +	early_started = 1;
-+	early_row = stage;
++	early_row = 60 + stage;
 +	early_col = 0;
 +	if (stage > 20) {
  		return;
