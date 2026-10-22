@@ -103,9 +103,9 @@ diff --git a/osfmk/arm64/nabu_early.c b/osfmk/arm64/nabu_early.c
 -#define EARLY_FB ((volatile uint32_t *)(uintptr_t)0x9c000000)
 +static volatile uint32_t *early_fb = (volatile uint32_t *)(uintptr_t)0x9c000000;
 +#define EARLY_FB early_fb
- #define EARLY_WIDTH 1080u
- #define EARLY_HEIGHT 2400u
- #define EARLY_STRIDE (4320u / 4)
+ #define EARLY_WIDTH 1600u
+ #define EARLY_HEIGHT 2560u
+ #define EARLY_STRIDE (6400u / 4)
 @@ -87,18 +89,21 @@
  void
  nabu_early_mark(unsigned int stage, const char *label)
