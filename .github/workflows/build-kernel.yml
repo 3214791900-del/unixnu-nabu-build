@@ -118,6 +118,21 @@ jobs:
           echo "IOStorageFamily HEAD: $(git -C refer/IOStorageFamily rev-parse HEAD)"
 
 
+      # The kernel build is 8 of the 9 minutes. Reusing the object tree turns a full
+      # rebuild into an incremental one, which is the only lever available without a macOS
+      # host. A new key per commit always saves a fresh cache; restore-keys falls back to
+      # the newest previous one so make only recompiles what changed.
+      - name: Restore kernel object cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            UniXNU/out/nabu/tree/.cache/xnu-work/build
+          key: xnu-obj-${{ github.sha }}
+          restore-keys: |
+            xnu-obj-
+          # The object tree is large; do not fail the run if the cache is unavailable.
+          fail-on-cache-miss: false
+
       - name: Build kernel
 
         run: |
