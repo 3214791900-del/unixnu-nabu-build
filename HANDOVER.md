@@ -708,3 +708,87 @@ DARWINBOOT: hand-off to the kernel
 - `C:\Temp\auto\loop.ps1` —— 循环：触发构建 → 等 → 下载 → QEMU → 分析 → 下一轮，
   每轮日志存 `C:\Temp\auto\rounds\<n>\`
 - CI 侧已加 `actions/cache`（`xnu-work/build`），下一次起编译应变成增量
+
+
+---
+
+## 16. QEMU 里的内核日志打通（今晚成果）
+
+### 结果
+
+本地 QEMU 现在能打印**真实的内核日志**：
+
+```
+NABU                                                          <- UART 映射成功的标记
+kprintf initialized
+Serial mode specified: 00000003
+initialize_screen: b=23C7A0000, w=320, h=258, r=0xC80
+pe_arm_init_interrupts: args: 0xfffffff007a62860
+corecrypto_kext_start (tracing disabled)
+FIPSPOST_KEXT ... all tests PASSED (1690 ms)
+corecrypto_kext_start completed successfully
+ulock_initialize>thread_max=1536, ull_hash_buckets=512        <- 停在这
+```
+
+一轮验证 **40 秒**（CI 8.5 分钟 + 刷机 2 分钟 + 拍照）。
+
+### 四道关（每道一个明确根因）
+
+| # | 症状 | 根因 |
+|---|---|---|
+| 1 | 完全无日志 | `kprintf` 的门是 `if (!disable_serial_output && !disable_kprintf_output)`，**两个默认都是 true**，只清一个没用 |
+| 2 | 清了还是无日志 | `PE_init_kprintf` 在 `STARTUP(KPRINTF)` 跑，**早于 fb 映射**，按「fb 就绪」判断导致 hook 永不安装 |
+| 3 | UART tag 也不出现 | `0x9000000` 是**物理地址**，内核 VM 未映射，写入 fault 被吞；必须 `ml_io_map_unmappable` 先映射 |
+| 4 | Undefined Instruction | QEMU `-cpu cortex-a72` 不认识 `MSR S3_0_C4_C1_4`（0xd500419f）；**`-cpu max` 才行** |
+
+### QEMU 的边界
+
+卡在 `ulock_initialize()`（`STARTUP(EARLY_BOOT, STARTUP_RANK_FIRST)`）的
+`zalloc_permanent`。**真机能过这一步**（真机已到 IOKit），所以这是 QEMU 缺硬件/
+内存布局差异造成的，不是内核缺陷。**QEMU 的验证深度到此为止**。
+
+### 可复用的东西
+
+| 件 | 位置 |
+|---|---|
+| Mu_Basecore | `UniXNU/package/Mu_Basecore`（`release/202608`）|
+| UniXNU.efi | `package/Build/Out/AARCH64-DEBUG/UniXNU.efi` |
+| DarwinBoot.efi | `package/Build/UniXNU/DEBUG_GCC/AARCH64/DarwinBoot.efi` |
+| ESP | `C:\Temp\auto\esp` |
+| QEMU 设备树 | `C:\Temp\auto\qemu.adt` |
+| 截图 | `C:\Temp\auto\shot.ps1` |
+| 全自动 | `C:\Temp\auto\loop.ps1` |
+
+**QEMU 命令行（缺一个都不行）**
+
+```
+-M virt -cpu max -m 8192 -smp 1
+-drive if=pflash,format=raw,readonly=on,file=edk2-aarch64-code.fd
+-drive if=none,id=esp,format=raw,readonly=on,file=fat:<ESP目录>
+-device virtio-blk-pci,drive=esp -device ramfb
+-display none -serial file:<log>
+```
+
+- `-cpu max`：cortex-a72 会撞未定义指令
+- `-m 8192`：4096 时 DarwinBoot 报 `boot refused: Out of Resources`
+- ESP 用**目录**（`fat:`），不需要 dd/mkfs.vfat 造镜像
+- WSL 里调 Windows QEMU 时，**命令行路径必须是 `C:/...` 形式**
+
+### 设备树要用 QEMU 的，不是 nabu 的
+
+`make-dt.py --armvirt --armcpu --smp 1` 生成。用 nabu 的 `.adt` 会报：
+
+```
+*** CPU id 256 from CPU ordinal 1 'reg' property is out of range [0..7]
+*** Missing 'interrupts' property for CPU 0
+*** Missing 'function-ipi_dispatch' property for CPU 0
+```
+
+### 真机 IOSurface 的本质（已查清）
+
+`IOsurfaceRoot:installMemoryRegions()` 之后卡住，**不是断言、不是内存不足**，是
+**Apple 闭源 IOSurface kext 在非 Apple 平台上跑不通**。
+
+ios-nabu 的做法是**重写**：`NabuSurface.cpp`（IOCoreSurfaceRoot）+
+`NabuFramebuffer.cpp`（AppleCLCD），注册进 `iokit/KernelConfigTables.cpp`，
+并在 `NabuPlatformExpert` 里给 `arm-io` 子节点建 nub。**周级工作量**。
