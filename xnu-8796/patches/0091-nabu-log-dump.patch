@@ -7,15 +7,15 @@
 +static void nabu_log_dump(void);
  extern void nabu_sample_start(void);
  extern void nabu_keys_init(void);
-@@ -655,6 +655,7 @@
+@@ -654,6 +654,7 @@
  	printf("NABU UFS: \"%s\" on LUN %u: first block 0x%llx, %llu MiB, %s, DMA at 0x%llx\n",
  	    want, su.lun, su.first_block, su.nblocks * UFS_BLOCK >> 20,
  	    su.writable ? "read-write" : "read-only", su.dma_pa);
 +	nabu_log_dump();
  	nabu_log_start();
  	nabu_sample_start();
- 	/* Input drivers (HID services in iokit/Kernel/arm/hid/NabuHID.cpp).
-@@ -808,7 +808,77 @@
+ 	/* Input drivers (HID services in iokit/Kernel/arm/hid/NabuHID.cpp). */
+@@ -803,7 +803,77 @@
  	if (kernel_thread_start(nabu_log_thread, NULL, &thread) == KERN_SUCCESS) {
  		thread_deallocate(thread);
  	}
