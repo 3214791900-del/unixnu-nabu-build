@@ -1,0 +1,12 @@
+--- a/iokit/Kernel/arm/NabuFramebuffer.cpp
++++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
+@@ -165,8 +165,8 @@
+ 	int native = 0;
+ 	PE_parse_boot_argn("nabufb_native", &native, sizeof(native));
+ 	fLogicalW = fWidth;
+ 	fLogicalH = fHeight;
+-	if (!native && fWidth <= NABU_FB_LOGICAL_W && fHeight <= NABU_FB_LOGICAL_H) {
++	if (!native) {
+ 		fLogicalW = NABU_FB_LOGICAL_W;
+ 		fLogicalH = NABU_FB_LOGICAL_H;
+ 	}
