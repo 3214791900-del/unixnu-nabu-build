@@ -1,0 +1,63 @@
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -16,1 +16,2 @@
+ iokit/Kernel/arm/NabuFramebuffer.cpp                            optional iokitcpp
++iokit/Kernel/arm/NabuScaler.cpp                                 optional iokitcpp
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -70,5 +70,9 @@
+     "     'IONameMatch'     = 'nabu,display';"
+     "   },"
++    "   {"
++    "     'IOClass'         = AppleM2ScalerCSCDriver;"
++    "     'IOProviderClass' = IOResources;"
++    "   },"
+ #endif
+     "   {"
+     "     'IOClass'         = IOPanicPlatform;"
+--- /dev/null
++++ b/iokit/Kernel/arm/NabuScaler.cpp
+@@ -0,0 +1,43 @@
++/*
++ * AppleM2ScalerCSCDriver: stub for the display scaler / colour-space
++ * converter that backboardd matches on every boot.
++ *
++ * The real class is a closed Apple kext from the M2-generation display
++ * pipeline and does not exist on NABU. backboardd's IOServiceMatching()
++ * for it fails once per frame and floods the console, so publish a
++ * do-nothing service under that class name. The output path itself stays
++ * with AppleCLCD (NabuFramebuffer.cpp).
++ */
++#include <pexpert/arm64/board_config.h>
++
++#if defined(NABU)
++#include <IOKit/IOLib.h>
++#include <IOKit/IOService.h>
++
++class AppleM2ScalerCSCDriver : public IOService {
++	OSDeclareDefaultStructors(AppleM2ScalerCSCDriver);
++
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++	void stop(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(AppleM2ScalerCSCDriver, IOService);
++
++bool
++AppleM2ScalerCSCDriver::start(IOService *provider)
++{
++	if (!IOService::start(provider)) {
++		return false;
++	}
++	registerService();
++	IOLog("NABU SCALER: AppleM2ScalerCSCDriver stub registered\n");
++	return true;
++}
++
++void
++AppleM2ScalerCSCDriver::stop(IOService *provider)
++{
++	IOService::stop(provider);
++}
++#endif /* NABU */
