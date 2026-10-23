@@ -1,0 +1,37 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2162,15 +2162,24 @@
+ 	 * launchd backs off and the crash loop is gone.  The suffix match
+ 	 * covers /usr/libexec/CommCenter and the CoreServices copy alike.
+ 	 */
+-	{
+-		size_t nabu_skip = sizeof("/CommCenter") - 1;
+-		size_t nabu_len = strlen(excpath);
+-
+-		if (nabu_len >= nabu_skip &&
+-		    strcmp(excpath + (nabu_len - nabu_skip), "/CommCenter") == 0) {
+-			error = ENOENT;
+-			goto bad_notrans;
+-		}
+-	}
++	{
++		static const char *const nabu_skip_exec[] = {
++			"/CommCenter",        /* no baseband: SIGSEGV loop */
++			"/fairplayd.R2",     /* no hardware: exec loop */
++			"/bluetoothd",       /* no hardware: exec loop */
++		};
++		size_t nabu_len = strlen(excpath);
++		size_t nabu_i;
++
++		for (nabu_i = 0; nabu_i < sizeof(nabu_skip_exec) / sizeof(nabu_skip_exec[0]); nabu_i++) {
++			size_t nabu_skip = strlen(nabu_skip_exec[nabu_i]);
++
++			if (nabu_len >= nabu_skip &&
++			    strcmp(excpath + (nabu_len - nabu_skip), nabu_skip_exec[nabu_i]) == 0) {
++				error = ENOENT;
++				goto bad_notrans;
++			}
++		}
++	}
+ 	/* Use excpath, which contains the copyin-ed exec path */
+ 	DTRACE_PROC1(exec, uintptr_t, excpath);
