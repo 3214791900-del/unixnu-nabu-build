@@ -1,12 +1,16 @@
 --- a/iokit/conf/files.arm64
 +++ b/iokit/conf/files.arm64
-@@ -16,1 +16,2 @@
- iokit/Kernel/arm/NabuFramebuffer.cpp                            optional iokitcpp
-+iokit/Kernel/arm/NabuScaler.cpp                                 optional iokitcpp
+@@ -20,3 +20,4 @@
+ iokit/Kernel/arm/hid/IOHIDEvent.cpp                              optional iokitcpp
+ iokit/Kernel/arm/hid/IOHIDEventServiceQueue.cpp                  optional iokitcpp
+ iokit/Kernel/arm/hid/IOHIDEventServiceUserClient.cpp             optional iokitcpp
++iokit/Kernel/arm/NabuScaler.cpp                                  optional iokitcpp
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -70,5 +70,9 @@
-     "     'IONameMatch'     = 'nabu,display';"
+@@ -80,7 +80,11 @@
+     "     'IOClass'         = NabuBattery;"
+     "     'IOProviderClass' = IOResources;"
+     "     'IOMatchCategory' = NabuBattery;"
      "   },"
 +    "   {"
 +    "     'IOClass'         = AppleM2ScalerCSCDriver;"
