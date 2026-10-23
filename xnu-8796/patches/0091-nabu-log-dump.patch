@@ -1,0 +1,95 @@
+--- a/bsd/dev/nabu_ufs.c
++++ b/bsd/dev/nabu_ufs.c
+@@ -38,5 +38,6 @@
+ extern void thread_deallocate(thread_t);
+ extern int hz;
+ static void nabu_log_start(void);
++static void nabu_log_dump(void);
+ 
+ #define REG_CAP         0x00
+@@ -595,6 +595,7 @@
+ 	printf("NABU UFS: \"%s\" on LUN %u: first block 0x%llx, %llu MiB, %s, DMA at 0x%llx\n",
+ 	    want, su.lun, su.first_block, su.nblocks * UFS_BLOCK >> 20,
+ 	    su.writable ? "read-write" : "read-only", su.dma_pa);
++	nabu_log_dump();
+ 	return 0;
+ }
+ 
+@@ -700,7 +700,77 @@
+ 	if (kernel_thread_start(nabu_log_thread, NULL, &thread) == KERN_SUCCESS) {
+ 		thread_deallocate(thread);
+ 	}
+ }
+ 
++/*
++ * Dump the persisted ring (boot-arg nabulog_dump=1): the console log of the
++ * PREVIOUS boot, printed on the panel this time, so a stuck boot can be read
++ * without a recovery image.
++ */
++static void
++nabu_log_dump(void)
++{
++	uint32_t on = 0, len, start, first, nblocks, skip, i, col = 0;
++	uint64_t total;
++	uint8_t *area;
++	char line[100];
++	struct nabu_log_header *h;
++
++	PE_parse_boot_argn("nabulog_dump", &on, sizeof(on));
++	if (!on || su.nblocks < 2 * NABU_LOG_BLOCKS) {
++		return;
++	}
++	area = (uint8_t *)(su.dma + DMA_BOUNCE);
++	if (ufs_read_blocks(su.first_block + su.nblocks - NABU_LOG_BLOCKS, 1) != 0) {
++		printf("NABU LOG: dump: header read failed\n");
++		return;
++	}
++	h = (struct nabu_log_header *)area;
++	total = h->total;
++	printf("NABU LOG: dump magic=%.8s total=%llu seq=%llu\n",
++	    h->magic, (unsigned long long)total, (unsigned long long)h->seq);
++	if (total == 0) {
++		return;
++	}
++	len = 16384;
++	if (total < len) {
++		len = (uint32_t)total;
++	}
++	start = (uint32_t)((total - len) % NABU_LOG_SIZE);
++	if (start + len > NABU_LOG_SIZE) {
++		len = NABU_LOG_SIZE - start;
++	}
++	first = start / UFS_BLOCK;
++	nblocks = (len + UFS_BLOCK - 1) / UFS_BLOCK;
++	if (nblocks > BOUNCE_SIZE / UFS_BLOCK) {
++		nblocks = BOUNCE_SIZE / UFS_BLOCK;
++		len = nblocks * UFS_BLOCK;
++	}
++	if (ufs_read_blocks(su.first_block + su.nblocks - NABU_LOG_BLOCKS + 1 + first,
++	    nblocks) != 0) {
++		printf("NABU LOG: dump: read failed\n");
++		return;
++	}
++	skip = start - first * UFS_BLOCK;
++	printf("NABU LOG: ---- previous boot, last %u bytes ----\n", len);
++	for (i = 0; i < len; i++) {
++		char c = (char)area[skip + i];
++
++		if (c == '\n') {
++			line[col] = '\0';
++			printf("%s\n", line);
++			col = 0;
++			continue;
++		}
++		if (col + 1 < sizeof(line)) {
++			line[col++] = (c >= 0x20 && c < 0x7f) ? c : '.';
++		}
++	}
++	if (col) {
++		line[col] = '\0';
++		printf("%s\n", line);
++	}
++	printf("NABU LOG: ---- end ----\n");
++}
+ /* Root device for rd=ufsroot0 (IOFindBSDRoot). */
+ int nabu_ufs_rootdev(dev_t *dev);
