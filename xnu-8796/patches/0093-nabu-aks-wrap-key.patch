@@ -1,0 +1,38 @@
+--- a/iokit/Kernel/arm/NabuKeyStore.cpp
++++ b/iokit/Kernel/arm/NabuKeyStore.cpp
+@@ -229,8 +229,35 @@
+ 	case kAKSGetDeviceState:
+ 	case kAKSGetExtDeviceState:
+ 		args->scalarOutputCount = 0;
+ 		ret = nabu_aks_device_state(args);
+ 		break;
++	case kAKSWrapKey:
++	case kAKSUnwrapKey:
++	{
++		/*
++		 * NABU has no real key wrapping (no SEP): echo the blob so the
++		 * wrap/unwrap pair stays self-consistent. securityd calls wrap with a
++		 * 32-byte key and later hands the result back to unwrap.
++		 */
++		uint64_t len = args->structureInputSize;
++
++		if (args->structureInputDescriptor != NULL || len == 0 || len > 256 ||
++		    args->structureOutput == NULL || args->structureOutputSize < len) {
++			ret = kIOReturnBadArgument;
++			break;
++		}
++		if (args->structureInput != NULL) {
++			memcpy(args->structureOutput, args->structureInput, (size_t)len);
++		} else {
++			bzero(args->structureOutput, (size_t)len);
++		}
++		args->structureOutputSize = len;
++		if (args->scalarOutputCount > 0) {
++			args->scalarOutput[0] = 0;
++			args->scalarOutputCount = 1;
++		}
++		break;
++	}
+ 	default:
+ 		ret = kIOReturnUnsupported;
+ 		break;
