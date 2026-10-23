@@ -1,0 +1,32 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -2151,12 +2151,29 @@
+ 	error = execargs_alloc(imgp);
+ 	if (error) {
+ 		goto bad_notrans;
+ 	}
+ 
+ 	error = exec_save_path(imgp, imgp->ip_user_fname, imgp->ip_seg, &excpath);
+ 	if (error) {
+ 		goto bad_notrans;
+ 	}
+ 
++
++	/*
++	 * NABU: no baseband hardware, so CommCenter dereferences NULL and
++	 * crash-loops (SIGSEGV -> ReportCrash -> respawn).  Refuse the exec:
++	 * launchd backs off and the crash loop is gone.  The suffix match
++	 * covers /usr/libexec/CommCenter and the CoreServices copy alike.
++	 */
++	{
++		size_t nabu_skip = sizeof("/CommCenter") - 1;
++		size_t nabu_len = strlen(excpath);
++
++		if (nabu_len >= nabu_skip &&
++		    strcmp(excpath + (nabu_len - nabu_skip), "/CommCenter") == 0) {
++			error = ENOENT;
++			goto bad_notrans;
++		}
++	}
+ 	/* Use excpath, which contains the copyin-ed exec path */
+ 	DTRACE_PROC1(exec, uintptr_t, excpath);
