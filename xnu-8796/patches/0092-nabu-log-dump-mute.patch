@@ -1,0 +1,14 @@
+--- a/bsd/dev/nabu_ufs.c
++++ b/bsd/dev/nabu_ufs.c
+@@ -877,3 +877,11 @@
+ 	}
+ 	printf("NABU LOG: ---- end ----\n");
++	/*
++	 * Keep the dump on the panel: the new boot's console would scroll it away
++	 * immediately. Panics still draw (see _cnputs).
++	 */
++	{
++		extern int nabu_console_muted;
++		nabu_console_muted = 1;
++	}
+ }
