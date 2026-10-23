@@ -1,6 +1,6 @@
 --- a/bsd/kern/kern_exec.c
 +++ b/bsd/kern/kern_exec.c
-@@ -2162,15 +2162,24 @@
+@@ -2162,15 +2162,25 @@
  	 * launchd backs off and the crash loop is gone.  The suffix match
  	 * covers /usr/libexec/CommCenter and the CoreServices copy alike.
  	 */
@@ -17,7 +17,8 @@
 +	{
 +		static const char *const nabu_skip_exec[] = {
 +			"/CommCenter",        /* no baseband: SIGSEGV loop */
-+			"/fairplayd.R2",     /* no hardware: exec loop */
++			"/fairplayd.A2",     /* 16.6.1 iPad image: /usr/sbin/fairplayd.A2 */
++			"/fairplayd.R2",     /* what the panel shows; keep both */
 +			"/bluetoothd",       /* no hardware: exec loop */
 +		};
 +		size_t nabu_len = strlen(excpath);
