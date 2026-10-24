@@ -1,0 +1,32 @@
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+index 6d22780..bf1d7fe 100644
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -1,10 +1,12 @@
+ static volatile uint32_t *fbcon_base;
+ static uint32_t fbcon_width, fbcon_height, fbcon_stride;
+ static uint32_t fbcon_cols, fbcon_rows, fbcon_col, fbcon_row;
++static uint32_t fbcon_drawn;	/* lines painted so far */
+ 
+ static void
+ fbcon_newline(void)
+ {
++	fbcon_drawn++;
+ 	fbcon_col = 0;
+ 	fbcon_row = (fbcon_row + 1) % fbcon_rows;
+ 	fbcon_clear_row(fbcon_row);
+@@ -20,6 +22,14 @@ fbcon_transmit_ready(void)
+ static void
+ fbcon_transmit_data(uint8_t c)
+ {
++	/*
++	 * Stop painting the panel once the boot has said its piece: the log
++	 * keeps coming and every character repaints the framebuffer, wiping
++	 * whatever CoreAnimation just presented.  The ring log is unaffected.
++	 */
++	if (fbcon_drawn > 400) {
++		return;
++	}
+ 	if (c == '\r') {
+ 		fbcon_col = 0;
+ 		return;
