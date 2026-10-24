@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/nabu_ufs.c b/bsd/dev/nabu_ufs.c
-index e8c38a6..7da16f3 100644
+index e8c38a6..a766164 100644
 --- a/bsd/dev/nabu_ufs.c
 +++ b/bsd/dev/nabu_ufs.c
 @@ -807,6 +807,52 @@ nabu_log_start(void)
@@ -24,7 +24,7 @@ index e8c38a6..7da16f3 100644
 +	 * scrolled away before they can be read.
 +	 */
 +	static int accel_only = -1;
-+	static const char *const accel[] = { "NABU ACCEL:", "CRASH ", "panic" };
++	static const char *const accel[] = { "NABU ACCEL:", "CRASH ", "panic", ": open " };
 +	static const char *const want[] = {
 +		"NABU FB:", "NABU SURF:", "NABU SCALER:", "NABU ACCEL:",
 +		"IOK backboardd", "matching1", "CRASH ", "panic",
