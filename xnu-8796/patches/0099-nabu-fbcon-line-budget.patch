@@ -1,13 +1,16 @@
 diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
-index 6d22780..bf1d7fe 100644
+index 22c0c79..a3559c4 100644
 --- a/pexpert/arm/pe_serial.c
 +++ b/pexpert/arm/pe_serial.c
-@@ -1,10 +1,12 @@
+@@ -720,6 +720,7 @@ extern unsigned char iso_font[256 * 16];
  static volatile uint32_t *fbcon_base;
  static uint32_t fbcon_width, fbcon_height, fbcon_stride;
  static uint32_t fbcon_cols, fbcon_rows, fbcon_col, fbcon_row;
 +static uint32_t fbcon_drawn;	/* lines painted so far */
  
+ static void
+ fbcon_clear_row(uint32_t row)
+@@ -735,6 +736,7 @@ fbcon_clear_row(uint32_t row)
  static void
  fbcon_newline(void)
  {
@@ -15,14 +18,15 @@ index 6d22780..bf1d7fe 100644
  	fbcon_col = 0;
  	fbcon_row = (fbcon_row + 1) % fbcon_rows;
  	fbcon_clear_row(fbcon_row);
-@@ -20,6 +22,14 @@ fbcon_transmit_ready(void)
+@@ -761,6 +763,15 @@ fbcon_transmit_ready(void)
  static void
  fbcon_transmit_data(uint8_t c)
  {
 +	/*
 +	 * Stop painting the panel once the boot has said its piece: the log
-+	 * keeps coming and every character repaints the framebuffer, wiping
-+	 * whatever CoreAnimation just presented.  The ring log is unaffected.
++	 * keeps coming (exec, AKS, sampler) and every character repaints the
++	 * framebuffer, wiping whatever CoreAnimation just presented.  The
++	 * persistent ring log is unaffected, so nothing is lost.
 +	 */
 +	if (fbcon_drawn > 150) {
 +		return;
