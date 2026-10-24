@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/nabu_spmi.c b/bsd/dev/nabu_spmi.c
-index 820ec8c..406a585 100644
+index 820ec8c..ae66d56 100644
 --- a/bsd/dev/nabu_spmi.c
 +++ b/bsd/dev/nabu_spmi.c
 @@ -9,6 +9,7 @@
@@ -10,7 +10,18 @@ index 820ec8c..406a585 100644
  #include <IOKit/IOLocks.h>
  #include "nabu_spmi.h"
  
-@@ -123,4 +124,95 @@ nabu_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
+@@ -90,7 +91,9 @@ nabu_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
+ 	unsigned peripheral = addr >> 8;
+ 	if (!sp_ready || !out || sid != 0 || addr > 0xffffu ||
+ 	    (peripheral != 0x10 && peripheral != 0x11 && peripheral != 0x12 &&
+-	    peripheral != 0x13 && peripheral != 0x48)) {
++	    peripheral != 0x13 && peripheral != 0x48 &&
++	    /* PMIC regulator blocks (LDO/SMPS): read-only inspection. */
++	    (peripheral < 0x40 || peripheral > 0x5f))) {
+ 		return -1;
+ 	}
+ 	IOLockLock(sp_lock);
+@@ -123,4 +126,134 @@ nabu_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
  	IOLockUnlock(sp_lock);
  	return -1;
  }
@@ -105,12 +116,51 @@ index 820ec8c..406a585 100644
 +	return tested > 0 ? 0 : -1;
 +}
 +
++
++/*
++ * Read-only regulator inspection.  The mainline nabu device tree says the USB
++ * PHY needs vreg_l5a_0p8 / vreg_l12a_1p8 / vreg_l2a_3p1, but it does not give
++ * their SPMI addresses.  Rather than guess and write, dump a small window from
++ * every regulator-ish peripheral and read the answer off the hardware: a block
++ * that belongs to an LDO has a plausible EN_CTL at +0x40 and a voltage at
++ * +0x45, and non-existent blocks answer 0xff or fail outright.
++ */
++void
++nabu_spmi_regdump(void)
++{
++	static const unsigned peripherals[] = {
++		0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
++		0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
++	};
++	uint8_t v;
++
++	if (!sp_ready) {
++		return;
++	}
++	printf("NABU SPMI: regulator dump (read only)\n");
++	for (unsigned i = 0; i < sizeof(peripherals) / sizeof(peripherals[0]); i++) {
++		unsigned base = peripherals[i] << 8;
++		/* +0x40 enable, +0x45 voltage, +0x46 mode, +0x08 status window. */
++		int e = nabu_spmi_read(0, base | 0x40, &v);
++		if (e != 0) {
++			continue;
++		}
++		uint8_t en = v, volt = 0, mode = 0, st = 0;
++		(void)nabu_spmi_read(0, base | 0x45, &volt);
++		(void)nabu_spmi_read(0, base | 0x46, &mode);
++		(void)nabu_spmi_read(0, base | 0x08, &st);
++		printf("NABU SPMI: %#04x en=%#04x volt=%#04x mode=%#04x st=%#04x\n",
++		    base, en, volt, mode, st);
++	}
++	printf("NABU SPMI: regulator dump done\n");
++}
++
  #endif /* ARM64_BOARD_CONFIG_NABU */
 diff --git a/bsd/dev/nabu_spmi.h b/bsd/dev/nabu_spmi.h
-index abaa1fd..e723dd2 100644
+index abaa1fd..9e5ead8 100644
 --- a/bsd/dev/nabu_spmi.h
 +++ b/bsd/dev/nabu_spmi.h
-@@ -8,6 +8,10 @@ extern "C" {
+@@ -8,6 +8,12 @@ extern "C" {
  int nabu_spmi_init(void);
  /* Thread context only; 0 success, -1 failure; *out unchanged on failure. */
  int nabu_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
@@ -118,28 +168,35 @@ index abaa1fd..e723dd2 100644
 +int nabu_spmi_write(unsigned sid, unsigned addr, uint8_t value);
 +/* Read -> write the same value back -> read again; 0 when they match. */
 +int nabu_spmi_write_selftest(void);
++/* Read-only dump of the regulator blocks (nabuspmi_dump=1). */
++void nabu_spmi_regdump(void);
  #ifdef __cplusplus
  }
  #endif
 diff --git a/iokit/Kernel/arm/NabuBattery.cpp b/iokit/Kernel/arm/NabuBattery.cpp
-index be8f435..6a41aec 100644
+index be8f435..ee40891 100644
 --- a/iokit/Kernel/arm/NabuBattery.cpp
 +++ b/iokit/Kernel/arm/NabuBattery.cpp
-@@ -14,6 +14,7 @@
+@@ -14,6 +14,8 @@
  #include <pexpert/pexpert.h>
  /* bsd/dev/nabu_spmi.c */
  extern "C" int nabu_spmi_init(void);
 +extern "C" int nabu_spmi_write_selftest(void);
++extern "C" void nabu_spmi_regdump(void);
  extern "C" int nabu_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
  
  class NabuBattery : public IOPMPowerSource {
-@@ -265,6 +266,10 @@ NabuBattery::start(IOService *provider)
+@@ -265,6 +267,14 @@ NabuBattery::start(IOService *provider)
  	int real = 0;
  	(void)PE_parse_boot_argn("nabubattery", &real, sizeof(real));
  	fReal = real == 1 && nabu_spmi_init() == 0;
 +	if (fReal) {
 +		/* Proves the SPMI write encoding without changing anything. */
 +		(void)nabu_spmi_write_selftest();
++		int dump = 0;
++		if (PE_parse_boot_argn("nabuspmi_dump", &dump, sizeof(dump)) && dump) {
++			nabu_spmi_regdump();     /* read-only */
++		}
 +	}
  	/* Publish a complete source BEFORE registerService wakes powerd. */
  	poll();
