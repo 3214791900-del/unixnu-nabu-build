@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/nabu_ufs.c b/bsd/dev/nabu_ufs.c
-index e8c38a6..2feb926 100644
+index e8c38a6..d860354 100644
 --- a/bsd/dev/nabu_ufs.c
 +++ b/bsd/dev/nabu_ufs.c
 @@ -807,6 +807,31 @@ nabu_log_start(void)
@@ -34,6 +34,15 @@ index e8c38a6..2feb926 100644
  /*
   * Dump the persisted ring (boot-arg nabulog_dump=1): the console log of the
   * PREVIOUS boot, printed on the panel this time, so a stuck boot can be read
+@@ -818,7 +843,7 @@ nabu_log_dump(void)
+ 	uint32_t on = 0, len, start, first, nblocks, skip, i, col = 0;
+ 	uint64_t total;
+ 	uint8_t *area;
+-	char line[100];
++	char line[512];	/* IOKit matching lines are ~200 chars: 100 truncated them */
+ 	struct nabu_log_header *h;
+ 
+ 	PE_parse_boot_argn("nabulog_dump", &on, sizeof(on));
 @@ -841,7 +866,31 @@ nabu_log_dump(void)
  	if (total < len) {
  		len = (uint32_t)total;
@@ -67,7 +76,7 @@ index e8c38a6..2feb926 100644
  	if (start + len > NABU_LOG_SIZE) {
  		len = NABU_LOG_SIZE - start;
  	}
-@@ -863,7 +912,20 @@ nabu_log_dump(void)
+@@ -863,12 +912,27 @@ nabu_log_dump(void)
  
  		if (c == '\n') {
  			line[col] = '\0';
@@ -89,7 +98,15 @@ index e8c38a6..2feb926 100644
  			col = 0;
  			continue;
  		}
-@@ -876,6 +938,7 @@ nabu_log_dump(void)
+ 		if (col + 1 < sizeof(line)) {
+-			line[col++] = (c >= 0x20 && c < 0x7f) ? c : '.';
++			if (col < sizeof(line) - 1) {
++				line[col++] = (c >= 0x20 && c < 0x7f) ? c : '.';
++			}
+ 		}
+ 	}
+ 	if (col) {
+@@ -876,6 +940,7 @@ nabu_log_dump(void)
  		printf("%s\n", line);
  	}
  	printf("NABU LOG: ---- end ----\n");
