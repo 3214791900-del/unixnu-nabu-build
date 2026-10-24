@@ -1,34 +1,28 @@
 diff --git a/bsd/dev/nabu_ufs.c b/bsd/dev/nabu_ufs.c
-index 9876259..6e02182 100644
+index e8c38a6..ca4a8e1 100644
 --- a/bsd/dev/nabu_ufs.c
 +++ b/bsd/dev/nabu_ufs.c
-@@ -9,11 +9,25 @@ static void
- nabu_log_dump_body(void)
- {
- 	uint32_t start;
--	len = NABU_LOG_SIZE;
-+	len = 16384;
+@@ -841,7 +841,22 @@ nabu_log_dump(void)
  	if (total < len) {
  		len = (uint32_t)total;
  	}
--	/* Head of the ring instead of the tail: the display bring-up lines
--	 * (IOMFB selectors, vsync registrations) are at the beginning. */
--	start = 0;
+-	start = (uint32_t)((total - len) % NABU_LOG_SIZE);
 +	/*
 +	 * Which 16 KiB slice of the ring to print.  The ring is 4 MiB and the
-+	 * only way to read it here is to photograph the panel, so let each boot
-+	 * print a different slice: `nabudump_page=1` is the most recent, 2 the
-+	 * slice before it, and so on.
++	 * only way to read it on this port is to photograph the panel, so let
++	 * each boot print a different slice: `nabudump_page=1` is the most
++	 * recent, 2 the slice before it, and so on.
 +	 */
 +	uint32_t page = 1;
 +	PE_parse_boot_argn("nabudump_page", &page, sizeof(page));
 +	if (page < 1) {
 +		page = 1;
 +	}
-+	if (total < (uint64_t)page * len) {
-+		len = (uint32_t)(total % len);
++	if ((uint64_t)page * len >= (uint64_t)total) {
 +		start = 0;
 +	} else {
 +		start = (uint32_t)((total - (uint64_t)page * len) % NABU_LOG_SIZE);
 +	}
- }
+ 	if (start + len > NABU_LOG_SIZE) {
+ 		len = NABU_LOG_SIZE - start;
+ 	}
