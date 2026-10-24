@@ -1,23 +1,22 @@
 --- a/iokit/Kernel/arm/NabuFramebuffer.cpp
 +++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
-@@ -66,3 +66,16 @@
+@@ -66,3 +66,15 @@
 -#define NABU_FB_LOGICAL_W              1125
 -#define NABU_FB_LOGICAL_H              2436
 +/*
-+ * The root filesystem is the iPad Pro 10.5 (iPadOS 16.6.1) image, whose
-+ * asset catalogs only carry the iPad screen sizes.  Inside that userland
-+ * SpringBoard died with
-+ *   NSInternalInconsistencyException: Failed to load bounding path bitmap
-+ *   data from the asset manager for asset name:
-+ *   BoundingPathBitmap-1125x2436-375x812-3.00x
-+ * Present iPad Pro 12.9 instead: 2048x2732 pixels, 1024x1366 points @2x.
-+ * It is the only iPad size larger than the 1600x2560 panel in BOTH
-+ * dimensions, which the panel copy path requires (fOffX/fOffY must be
-+ * positive: they are (logical - panel) / 2).
++ * The root filesystem is the iPad Pro 10.5 (iPadOS 16.6.1) image: its
++ * asset catalogs only carry the iPad screen sizes, and UIKit asserts on a
++ * missing per-screen bitmap
++ *   BoundingPathBitmap-<px>x<px>-<pt>x<pt>-<scale>x
++ * so the panel has to be presented as a real iPad screen.
++ *
++ * 1536x2048 (iPad mini, 768x1024 points @2x) is the smallest iPad size and
++ * therefore the most likely to fit whatever limit CoreAnimation puts on
++ * its software renderer ("image is too large for software renderer").
 + * /chosen/display-scale must be 2 in the ADT for this (mkadt.py).
 + */
-+#define NABU_FB_LOGICAL_W              2048
-+#define NABU_FB_LOGICAL_H              2732
++#define NABU_FB_LOGICAL_W              1536
++#define NABU_FB_LOGICAL_H              2048
  #define NABU_FB_FORMAT_BGRA            0x42475241
 --- a/iokit/Kernel/arm/hid/NabuHID.cpp
 +++ b/iokit/Kernel/arm/hid/NabuHID.cpp
@@ -27,8 +26,8 @@
 -	fLogicalH = native ? 2400 : 2436;
 -	fOffX = (fLogicalW - 1080) / 2;
 -	fOffY = (fLogicalH - 2400) / 2;
-+	fLogicalW = native ? 1600 : 2048;
-+	fLogicalH = native ? 2560 : 2732;
++	fLogicalW = native ? 1600 : 1536;
++	fLogicalH = native ? 2560 : 2048;
 +	fOffX = (fLogicalW - 1600) / 2;
 +	fOffY = (fLogicalH - 2560) / 2;
  	/* The digitizer covers the main display (backboardd maps it 1:1). */
