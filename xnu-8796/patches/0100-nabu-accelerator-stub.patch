@@ -1,0 +1,105 @@
+diff --git a/iokit/Kernel/arm/NabuAccelerator.cpp b/iokit/Kernel/arm/NabuAccelerator.cpp
+new file mode 100644
+index 0000000..956c75f
+--- /dev/null
++++ b/iokit/Kernel/arm/NabuAccelerator.cpp
+@@ -0,0 +1,73 @@
++/*
++ * IOAcceleratorES / IOAcceleratorESLegacy: stubs for the GPU accelerator
++ * services backboardd matches on every boot.
++ *
++ * The port has no GPU driver, so the match returned "none" forever and
++ * CoreAnimation never built a renderer: the UI stayed black while the
++ * CoreGraphics progress bar (which needs no accelerator) worked fine.
++ *
++ * These publish do-nothing services under the names backboardd looks for.
++ * If CA treats a failed IOServiceOpen as "no GPU" it should fall back to its
++ * software renderer; if it insists on a working accelerator, the next step is
++ * a real GPU path.
++ */
++#include <pexpert/arm64/board_config.h>
++
++#if defined(NABU)
++#include <IOKit/IOLib.h>
++#include <IOKit/IOService.h>
++
++class IOAcceleratorES : public IOService {
++	OSDeclareDefaultStructors(IOAcceleratorES);
++
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++	void stop(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(IOAcceleratorES, IOService);
++
++bool
++IOAcceleratorES::start(IOService *provider)
++{
++	if (!IOService::start(provider)) {
++		return false;
++	}
++	registerService();
++	IOLog("NABU ACCEL: IOAcceleratorES stub registered\n");
++	return true;
++}
++
++void
++IOAcceleratorES::stop(IOService *provider)
++{
++	IOService::stop(provider);
++}
++
++class IOAcceleratorESLegacy : public IOService {
++	OSDeclareDefaultStructors(IOAcceleratorESLegacy);
++
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++	void stop(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(IOAcceleratorESLegacy, IOService);
++
++bool
++IOAcceleratorESLegacy::start(IOService *provider)
++{
++	if (!IOService::start(provider)) {
++		return false;
++	}
++	registerService();
++	IOLog("NABU ACCEL: IOAcceleratorESLegacy stub registered\n");
++	return true;
++}
++
++void
++IOAcceleratorESLegacy::stop(IOService *provider)
++{
++	IOService::stop(provider);
++}
++#endif /* NABU */
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index 349caa6..f230a8a 100644
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -2,5 +2,13 @@ static const char * configTable[] = {
+     "     'IOClass'         = AppleM2ScalerCSCDriver;"
+     "     'IOProviderClass' = IOResources;"
+     "   },"
++    "   {"
++    "     'IOClass'         = IOAcceleratorES;"
++    "     'IOProviderClass' = IOResources;"
++    "   },"
++    "   {"
++    "     'IOClass'         = IOAcceleratorESLegacy;"
++    "     'IOProviderClass' = IOResources;"
++    "   },"
+ #endif
+ };
+diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
+index 9093f2e..51fbdb2 100644
+--- a/iokit/conf/files.arm64
++++ b/iokit/conf/files.arm64
+@@ -1,2 +1,3 @@
+ iokit/Kernel/arm/NabuFramebuffer.cpp                            optional iokitcpp
+ iokit/Kernel/arm/NabuScaler.cpp                                 optional iokitcpp
++iokit/Kernel/arm/NabuAccelerator.cpp                            optional iokitcpp
