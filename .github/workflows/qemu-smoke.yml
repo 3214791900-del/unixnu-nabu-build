@@ -73,7 +73,7 @@ jobs:
           python3 qemu/mkpayload.py qemu/kernel.nabu qemu/nabu.adt qemu/payload.bin \
             --cmdline "$CMDLINE"
           ls -l qemu/payload.bin
-          python3 qemu/qemu-nabu.py qemu/payload.bin qemu/out --secs 60 --fail-on-panic
+          python3 qemu/qemu-nabu.py qemu/payload.bin qemu/out --kernel qemu/kernel.nabu --secs 60 --fail-on-panic
           rc=$?
           echo "=== qemu-nabu exit: $rc ==="
           ls -l qemu/out || true
