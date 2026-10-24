@@ -40,10 +40,9 @@ jobs:
 
       - name: Build apfs-fuse
         run: |
-          git clone -q --depth 1 --recurse-submodules --shallow-submodules \
-            https://github.com/sgan81/apfs-fuse.git /tmp/apfs
+          git clone -q --depth 1 --recurse-submodules --shallow-submodules https://github.com/sgan81/apfs-fuse.git /tmp/apfs
           cmake -S /tmp/apfs -B /tmp/apfs/build -DCMAKE_BUILD_TYPE=Release
-          cmake --build /tmp/apfs/build -j"\"
+          cmake --build /tmp/apfs/build -j4
           sudo cmake --install /tmp/apfs/build
           command -v apfs-fuse
 
@@ -81,7 +80,6 @@ jobs:
           for a in ${{ inputs.addrs }}; do
             echo "=== $a ===" >> symbols.txt
             ./ipsw dyld a2s "$DSC" "$a" -i -d >> symbols.txt 2>&1 || echo "lookup failed" >> symbols.txt
-            ./ipsw dyld a2s "$DSC" "$a" -i >> symbols.txt 2>&1 || true
             echo >> symbols.txt
           done
           cat symbols.txt
