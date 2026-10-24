@@ -37,6 +37,9 @@ env:
   KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
   MACHINE_CONFIG: NABU
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-14
@@ -108,8 +111,8 @@ jobs:
         with:
           name: xnu-8796-kernel
           path: |
-            out/
-            dxb/build.log
+            out/kernel.development.nabu
+            out/SHA256SUMS
           if-no-files-found: warn
 
       # Public download: GitHub artifacts need a logged-in session, release
