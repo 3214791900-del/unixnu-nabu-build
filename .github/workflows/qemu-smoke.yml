@@ -1,0 +1,98 @@
+# Boot the freshly built kernel in QEMU and fail if it panics.
+#
+# Writing a GPU driver means frequent panics; flashing the tablet for each one
+# costs minutes and sometimes wedges ABL.  This boots the kernel on QEMU's
+# virt board with the same ADT (tools/qemu-nabu.py places the segments, the
+# device tree and boot_args, then captures the framebuffer), so a panic shows
+# up here in ~60 s instead of on the device.
+#
+# It proves "the kernel still reaches userland", not "the phone works": QEMU
+# has no nabu GPU, panel, UFS or touch, so anything display- or hardware-level
+# still has to be verified on the tablet.
+name: qemu-smoke
+
+on:
+  workflow_run:
+    workflows: ["build-kernel-8796"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: build-kernel run id (empty = latest successful)
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CMDLINE: "rd=ufsroot0 ufsrw=1 rootrw=1 launchd_unsecure_cache=1 unentitled_ios_sim_launch=1 nabusample=- debug=0xc serial=3 cpus=8 keepsyms=1"
+
+jobs:
+  smoke:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RUN_ID: ${{ github.event.workflow_run.id || inputs.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve the run id
+        id: rid
+        run: |
+          rid="$RUN_ID"
+          if [ -z "$rid" ]; then
+            rid=$(gh api "repos/${{ github.repository }}/actions/workflows/build-kernel-8796.yml/runs?status=success&per_page=1" -q '.workflow_runs[0].id')
+          fi
+          echo "run=$rid" >> "$GITHUB_OUTPUT"
+          echo "using run $rid"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Fetch that kernel
+        run: |
+          gh run download "${{ steps.rid.outputs.run }}" --repo "${{ github.repository }}" \
+            -n xnu-8796-kernel -D kern || true
+          find kern -name 'kernel.development.nabu' | head
+          k=$(find kern -name 'kernel.development.nabu' | head -1)
+          test -n "$k" || { echo "no kernel in that run"; exit 1; }
+          cp "$k" qemu/kernel.nabu
+          ls -l qemu/kernel.nabu
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: QEMU
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq qemu-system-arm python3
+          qemu-system-aarch64 --version | head -1
+
+      - name: Boot it
+        run: |
+          python3 qemu/mkpayload.py qemu/kernel.nabu qemu/nabu.adt qemu/payload.bin \
+            --cmdline "$CMDLINE"
+          ls -l qemu/payload.bin
+          python3 qemu/qemu-nabu.py qemu/payload.bin qemu/out --secs 60 --fail-on-panic
+          rc=$?
+          echo "=== qemu-nabu exit: $rc ==="
+          ls -l qemu/out || true
+          exit $rc
+
+      - name: Panic text (if any)
+        if: always()
+        run: |
+          for f in qemu/out/fb.txt qemu/out/qemu.log qemu/out/regs.txt; do
+            [ -f "$f" ] || continue
+            echo "===== $f ====="
+            grep -i -m 20 'panic\|exception\|ESR\|FAR\|ELR' "$f" || echo "(no panic markers)"
+          done
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qemu-smoke
+          path: |
+            qemu/out/
+            qemu/out/fb.png
+          if-no-files-found: warn
