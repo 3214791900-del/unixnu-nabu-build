@@ -1,0 +1,269 @@
+diff --git a/bsd/dev/nabu_ufs.c b/bsd/dev/nabu_ufs.c
+index e8c38a6..bb6c72a 100644
+--- a/bsd/dev/nabu_ufs.c
++++ b/bsd/dev/nabu_ufs.c
+@@ -689,10 +689,12 @@ static uint32_t nabu_log_secs = NABU_LOG_SECS;
+ 
+ /* Called for all console output, any context: never blocks. */
+ void nabu_log_append(const char *c, int size);
++extern void nabu_usb_serial_write(const char *buf, int len);
+ 
+ void
+ nabu_log_append(const char *c, int size)
+ {
++	nabu_usb_serial_write(c, size);
+ 	if (size <= 0) {
+ 		return;
+ 	}
+@@ -807,6 +809,52 @@ nabu_log_start(void)
+ 	}
+ }
+ 
++/*
++ * Only the lines worth reading when the panel is the only output: the
++ * display stack, the accelerator, IOKit matching and crashes.  Everything
++ * else in the ring is daemon spam (one exec line per spawn, one AKS line per
++ * key-store call) and would bury them.
++ */
++extern void fbcon_freeze(void);
++
++static int
++nabu_log_keep(const char *line)
++{
++	/*
++	 * nabudump_accel=1 narrows the dump to the accelerator and crashes: the
++	 * IOKit matching lines are ~200 characters each and flood the panel, so
++	 * the ACCEL lines ("registered", "user client OPENED by ...") get
++	 * scrolled away before they can be read.
++	 */
++	static int accel_only = -1;
++	static const char *const accel[] = { "NABU ACCEL:", "CRASH ", "panic", ": open " };
++	static const char *const want[] = {
++		"NABU FB:", "NABU SURF:", "NABU SCALER:", "NABU ACCEL:",
++		"IOK backboardd", "matching1", "CRASH ", "panic",
++	};
++	size_t i;
++
++	if (accel_only < 0) {
++		int v = 0;
++		accel_only = PE_parse_boot_argn("nabudump_accel", &v, sizeof(v)) && v;
++	}
++	if (accel_only) {
++		for (i = 0; i < sizeof(accel) / sizeof(accel[0]); i++) {
++			if (strnstr(line, accel[i], strlen(line)) != NULL) {
++				return 1;
++			}
++		}
++		return 0;
++	}
++
++	for (i = 0; i < sizeof(want) / sizeof(want[0]); i++) {
++		if (strnstr(line, want[i], strlen(line)) != NULL) {
++			return 1;
++		}
++	}
++	return 0;
++}
++
+ /*
+  * Dump the persisted ring (boot-arg nabulog_dump=1): the console log of the
+  * PREVIOUS boot, printed on the panel this time, so a stuck boot can be read
+@@ -818,7 +866,7 @@ nabu_log_dump(void)
+ 	uint32_t on = 0, len, start, first, nblocks, skip, i, col = 0;
+ 	uint64_t total;
+ 	uint8_t *area;
+-	char line[100];
++	char line[512];	/* IOKit matching lines are ~200 chars: 100 truncated them */
+ 	struct nabu_log_header *h;
+ 
+ 	PE_parse_boot_argn("nabulog_dump", &on, sizeof(on));
+@@ -841,7 +889,31 @@ nabu_log_dump(void)
+ 	if (total < len) {
+ 		len = (uint32_t)total;
+ 	}
+-	start = (uint32_t)((total - len) % NABU_LOG_SIZE);
++	/*
++	 * The filter above keeps only a handful of lines, so scan the whole
++	 * ring: the panel shows the tail of the result, which is exactly the
++	 * most recent accelerator / matching events.
++	 */
++	len = NABU_LOG_SIZE;
++	if (total < len) {
++		len = (uint32_t)total;
++	}
++	/*
++	 * Which 16 KiB slice of the ring to print.  The ring is 4 MiB and the
++	 * only way to read it on this port is to photograph the panel, so let
++	 * each boot print a different slice: `nabudump_page=1` is the most
++	 * recent, 2 the slice before it, and so on.
++	 */
++	uint32_t page = 1;
++	PE_parse_boot_argn("nabudump_page", &page, sizeof(page));
++	if (page < 1) {
++		page = 1;
++	}
++	if ((uint64_t)page * len >= (uint64_t)total) {
++		start = 0;
++	} else {
++		start = (uint32_t)((total - (uint64_t)page * len) % NABU_LOG_SIZE);
++	}
+ 	if (start + len > NABU_LOG_SIZE) {
+ 		len = NABU_LOG_SIZE - start;
+ 	}
+@@ -863,12 +935,27 @@ nabu_log_dump(void)
+ 
+ 		if (c == '\n') {
+ 			line[col] = '\0';
+-			printf("%s\n", line);
++			if (nabu_log_keep(line)) {
++				/*
++				 * IOKit matching lines are ~200 chars and the panel is
++				 * 100 columns wide, so the interesting tail ("-> none"
++				 * or "-> IOAcceleratorES") falls off the screen.
++				 * Print only the tail of those.
++				 */
++				size_t n = strlen(line);
++				if (n > 60 && strnstr(line, "matching", n) != NULL) {
++					printf("...%s\n", line + n - 60);
++				} else {
++					printf("%s\n", line);
++				}
++			}
+ 			col = 0;
+ 			continue;
+ 		}
+ 		if (col + 1 < sizeof(line)) {
+-			line[col++] = (c >= 0x20 && c < 0x7f) ? c : '.';
++			if (col < sizeof(line) - 1) {
++				line[col++] = (c >= 0x20 && c < 0x7f) ? c : '.';
++			}
+ 		}
+ 	}
+ 	if (col) {
+@@ -876,6 +963,7 @@ nabu_log_dump(void)
+ 		printf("%s\n", line);
+ 	}
+ 	printf("NABU LOG: ---- end ----\n");
++	fbcon_freeze();	/* keep exactly this on the panel */
+ 	/*
+ 	 * Keep the dump on the panel: the new boot's console would scroll it away
+ 	 * immediately. Panics still draw (see _cnputs).
+diff --git a/bsd/dev/nabu_usb.c b/bsd/dev/nabu_usb.c
+index 7c0ee21..297401e 100644
+--- a/bsd/dev/nabu_usb.c
++++ b/bsd/dev/nabu_usb.c
+@@ -334,18 +334,17 @@ ud_stall(void)
+  * pid.codes test ID, not a product.
+  */
+ static const uint8_t ud_dev_desc[18] = {
+-	18, 1, 0x00, 0x02, 0x02, 0x00, 0x00, 64,
++	18, 1, 0x00, 0x02, 0xef, 0x02, 0x01, 64,
+ 	0x09, 0x12, 0x01, 0x00, 0x00, 0x01, 1, 2, 3, 1,
+ };
+-static const uint8_t ud_cfg_desc[80] = {
+-	9, 2, 80, 0, 2, 1, 0, 0x80, 250,                /* config: 2 interfaces, 500 mA */
+-	9, 4, 0, 0, 1, 0x02, 0x06, 0x00, 0,             /* comm interface 0: CDC ECM, 1 endpoint */
++static const uint8_t ud_cfg_desc[75] = {
++	9, 2, 75, 0, 2, 1, 0, 0x80, 250,                /* config: 2 interfaces, 500 mA */
++	9, 4, 0, 0, 1, 0x02, 0x02, 0x01, 0,             /* comm interface 0: CDC-ACM, 1 endpoint */
+ 	5, 0x24, 0x00, 0x10, 0x01,                      /* header, CDC 1.10 */
++	4, 0x24, 0x02, 0x02,                            /* ACM: line coding + serial state */
+ 	5, 0x24, 0x06, 0, 1,                            /* union: control 0, data 1 */
+-	13, 0x24, 0x0f, 4, 0, 0, 0, 0, 0xea, 0x05, 0, 0, 0, /* ethernet: MAC string 4, max segment 1514 */
+-	7, 5, 0x82, 0x03, 16, 0, 9,                     /* ep 0x82 interrupt IN, 16 bytes, 2^(9-1) uframes */
+-	9, 4, 1, 0, 0, 0x0a, 0x00, 0x00, 0,             /* data interface 1 alt 0: no endpoints */
+-	9, 4, 1, 1, 2, 0x0a, 0x00, 0x00, 0,             /* data interface 1 alt 1: two bulk endpoints */
++	7, 5, 0x82, 0x03, 16, 0, 9,                     /* ep 0x82 interrupt IN, 16 bytes */
++	9, 4, 1, 0, 2, 0x0a, 0x00, 0x00, 0,             /* data interface 1: two bulk endpoints */
+ 	7, 5, 0x81, 0x02, 0x00, 0x02, 0,                /* ep 0x81 bulk IN, 512 */
+ 	7, 5, 0x01, 0x02, 0x00, 0x02, 0,                /* ep 0x01 bulk OUT, 512 */
+ };
+@@ -380,6 +379,34 @@ static void ud_rx_arm(void);
+ static void ud_tx_kick_locked(void);
+ static void ud_link_event(bool up);
+ 
++/*
++ * CDC-ACM serial: the host (Windows usbser, Linux cdc_acm) reads the kernel
++ * console through the bulk IN endpoint.  This is the only host-readable log
++ * channel on the device - there is no adb, UART or network gadget.
++ */
++static char ud_ser_buf[4096];
++static int ud_ser_len;
++static bool ud_ser_busy;
++
++void
++nabu_usb_serial_write(const char *buf, int len)
++{
++	if (!ud.configured || buf == NULL || len <= 0) {
++		return;
++	}
++	lck_mtx_lock(ud.lock);
++	int space = (int)sizeof(ud_ser_buf) - ud_ser_len;
++	if (len > space) {
++		len = space;
++	}
++	if (len > 0) {
++		memcpy(ud_ser_buf + ud_ser_len, buf, (size_t)len);
++		ud_ser_len += len;
++	}
++	ud_ser_kick_locked();
++	lck_mtx_unlock(ud.lock);
++}
++
+ /* NETWORK_CONNECTION notification: the host brings its link up on it. */
+ static void
+ ud_notify_connected(void)
+@@ -430,8 +457,20 @@ ud_setup(void)
+ 
+ 	printf("NABU USB: setup %02x %02x %04x %04x len %u\n", type, req, value, index, length);
+ 	ud.data_in = (type & 0x80) != 0;
+-	if ((type & 0x60) == 0x20) {    /* class request (e.g. SET_ETHERNET_PACKET_FILTER) */
+-		ok = (length == 0);
++	if ((type & 0x60) == 0x20) {    /* CDC-ACM class requests */
++		if (req == 0x20 && !ud.data_in && length >= 7) {
++			/* SET_LINE_CODING: 7 bytes OUT, then the status stage */
++			ud.state = EP0_DATA;
++			ud_start(0, UD_DATA, 7, TRBCTL_DATA);
++			return;
++		}
++		if (req == 0x21 && ud.data_in) {
++			/* GET_LINE_CODING: 115200 8N1 */
++			static const uint8_t lc[7] = { 0x00, 0xc2, 0x01, 0x00, 0x00, 0x00, 0x08 };
++			memcpy(data, lc, sizeof(lc));
++			n = sizeof(lc);
++		}
++		ok = true;
+ 	} else if ((type & 0x60) != 0) {
+ 		ok = false;
+ 	} else if (req == 6) {          /* GET_DESCRIPTOR */
+@@ -533,6 +572,20 @@ ud_rx_done(void)
+ }
+ 
+ /* Start the next queued frame if the IN endpoint is idle. ud.lock held. */
++static void
++ud_ser_kick_locked(void)
++{
++	if (ud_ser_busy || ud_ser_len <= 0 || !ud.configured) {
++		return;
++	}
++	int n = ud_ser_len > 512 ? 512 : ud_ser_len;
++	memcpy((void *)(ud.dma + UD_TX), ud_ser_buf, (size_t)n);
++	memmove(ud_ser_buf, ud_ser_buf + n, (size_t)(ud_ser_len - n));
++	ud_ser_len -= n;
++	ud_ser_busy = true;
++	ud_start_trb(EP_TX, UD_TRB_TX, UD_TX, (uint32_t)n, TRBCTL_NORMAL);
++}
++
+ static void
+ ud_tx_kick_locked(void)
+ {
+@@ -736,7 +789,9 @@ ud_event(uint32_t ev)
+ 	if (ep == EP_TX && type == 1) {
+ 		lck_mtx_lock(ud.lock);
+ 		ud.tx_busy = false;
++		ud_ser_busy = false;
+ 		ud_tx_kick_locked();
++		ud_ser_kick_locked();
+ 		lck_mtx_unlock(ud.lock);
+ 		return;
+ 	}
