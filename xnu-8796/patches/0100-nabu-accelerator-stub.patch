@@ -1,9 +1,9 @@
 diff --git a/iokit/Kernel/arm/NabuAccelerator.cpp b/iokit/Kernel/arm/NabuAccelerator.cpp
 new file mode 100644
-index 0000000..c1c05c4
+index 0000000..38d71de
 --- /dev/null
 +++ b/iokit/Kernel/arm/NabuAccelerator.cpp
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,165 @@
 +/*
 + * IOAcceleratorES / IOAcceleratorESLegacy: stubs for the GPU accelerator
 + * services backboardd matches on every boot.
@@ -26,6 +26,8 @@ index 0000000..c1c05c4
 +#include <IOKit/IOUserClient.h>
 +#include <IOKit/IOKitKeys.h>
 +#include <sys/proc.h>
++#include <libkern/c++/OSDictionary.h>
++#include <libkern/c++/OSNumber.h>
 +
 +#define NABU_ACCEL_LOG(fmt, ...)	IOLog("NABU ACCEL: " fmt "\n", ##__VA_ARGS__)
 +
@@ -108,6 +110,26 @@ index 0000000..c1c05c4
 +		return false;
 +	}
 +	setProperty(kIOUserClientClassKey, "IOAcceleratorESUserClient");
++	/*
++	 * CoreAnimation walked away from the bare service: matching succeeded
++	 * (-> IOAcceleratorES) but backboardd never opened it, so it must be
++	 * rejected on its properties.  Publish what a real Apple GPU publishes
++	 * and see whether anything changes.
++	 */
++	setProperty("MetalPluginName", "AGXMetalG13");
++	setProperty("IOGLBundleName", "AGXG13");
++	setProperty("IOAcceleratorClassName", "AGXAcceleratorG13");
++	OSDictionary *caps = OSDictionary::withCapacity(4);
++	if (caps != NULL) {
++		OSNumber *n = OSNumber::withNumber((unsigned long long)8, 32);
++		if (n != NULL) {
++			caps->setObject("gpu-core-count", n);
++			caps->setObject("gpu-cores", n);
++			n->release();
++		}
++		setProperty("IOAccelerator", caps);
++		caps->release();
++	}
 +	registerService();
 +	NABU_ACCEL_LOG("IOAcceleratorES stub registered");
 +	return true;
