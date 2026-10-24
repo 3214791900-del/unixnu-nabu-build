@@ -1,0 +1,18 @@
+diff --git a/iokit/Kernel/IOUserClient.cpp b/iokit/Kernel/IOUserClient.cpp
+index a38a785..900fb30 100644
+--- a/iokit/Kernel/IOUserClient.cpp
++++ b/iokit/Kernel/IOUserClient.cpp
+@@ -2620,7 +2620,12 @@ nabu_iolog(char *name, size_t len)
+ 		}
+ 		nabu_iolog_parsed = 1;
+ 	}
+-	if (nabu_iolog_lines >= 400) {
++	static uint32_t nabu_iolog_max;
++	if (nabu_iolog_max == 0) {
++		nabu_iolog_max = 400;
++		PE_parse_boot_argn("nabuiok_max", &nabu_iolog_max, sizeof(nabu_iolog_max));
++	}
++	if (nabu_iolog_lines >= nabu_iolog_max) {
+ 		return false;
+ 	}
+ 	proc_selfname(name, (int)len);
