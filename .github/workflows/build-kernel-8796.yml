@@ -111,3 +111,17 @@ jobs:
             out/
             dxb/build.log
           if-no-files-found: warn
+
+      # Public download: GitHub artifacts need a logged-in session, release
+      # assets do not.  The tablet-side work downloads this with a plain URL.
+      - name: Publish release asset
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ ! -f out/kernel.development.nabu ]; then echo "no kernel, skipping"; exit 0; fi
+          tag="kernel-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$tag" out/kernel.development.nabu out/SHA256SUMS \
+            --repo "${{ github.repository }}" --title "$tag" \
+            --notes "NABU xnu-8796 kernel for commit ${{ github.sha }}"
+          echo "https://github.com/${{ github.repository }}/releases/tag/$tag" >> "$GITHUB_STEP_SUMMARY"
