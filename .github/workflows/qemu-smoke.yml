@@ -65,8 +65,15 @@ jobs:
       - name: QEMU
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-system-arm python3
+          sudo apt-get install -y -qq qemu-system-arm python3 llvm
           qemu-system-aarch64 --version | head -1
+          # qemu-nabu.py decodes the framebuffer font with llvm-nm; Ubuntu
+          # ships it versioned, so give it the plain name it looks for.
+          command -v llvm-nm || {
+            v=$(command -v llvm-nm-18 || command -v llvm-nm-17 || command -v llvm-nm-16 || true)
+            [ -n "$v" ] && sudo ln -sf "$v" /usr/local/bin/llvm-nm
+          }
+          command -v llvm-nm || echo "llvm-nm still missing"
 
       - name: Boot it
         run: |
