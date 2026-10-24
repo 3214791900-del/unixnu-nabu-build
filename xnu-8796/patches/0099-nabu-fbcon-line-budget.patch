@@ -24,7 +24,7 @@ index 6d22780..bf1d7fe 100644
 +	 * keeps coming and every character repaints the framebuffer, wiping
 +	 * whatever CoreAnimation just presented.  The ring log is unaffected.
 +	 */
-+	if (fbcon_drawn > 400) {
++	if (fbcon_drawn > 150) {
 +		return;
 +	}
  	if (c == '\r') {
