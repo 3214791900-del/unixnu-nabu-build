@@ -1,16 +1,17 @@
 diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
-index 22c0c79..a3559c4 100644
+index 22c0c79..e32d99c 100644
 --- a/pexpert/arm/pe_serial.c
 +++ b/pexpert/arm/pe_serial.c
-@@ -720,6 +720,7 @@ extern unsigned char iso_font[256 * 16];
+@@ -720,6 +720,8 @@ extern unsigned char iso_font[256 * 16];
  static volatile uint32_t *fbcon_base;
  static uint32_t fbcon_width, fbcon_height, fbcon_stride;
  static uint32_t fbcon_cols, fbcon_rows, fbcon_col, fbcon_row;
 +static uint32_t fbcon_drawn;	/* lines painted so far */
++static uint32_t fbcon_budget = 150;	/* boot-arg nabufbcon overrides */
  
  static void
  fbcon_clear_row(uint32_t row)
-@@ -735,6 +736,7 @@ fbcon_clear_row(uint32_t row)
+@@ -735,6 +737,7 @@ fbcon_clear_row(uint32_t row)
  static void
  fbcon_newline(void)
  {
@@ -18,7 +19,16 @@ index 22c0c79..a3559c4 100644
  	fbcon_col = 0;
  	fbcon_row = (fbcon_row + 1) % fbcon_rows;
  	fbcon_clear_row(fbcon_row);
-@@ -761,6 +763,15 @@ fbcon_transmit_ready(void)
+@@ -744,6 +747,8 @@ fbcon_newline(void)
+ static void
+ fbcon_init(void)
+ {
++	/* nabufbcon=N: how many lines to paint before leaving the panel alone */
++	PE_parse_boot_argn("nabufbcon", &fbcon_budget, sizeof(fbcon_budget));
+ 	fbcon_cols = fbcon_width / (8 * FBCON_SCALE);
+ 	fbcon_rows = fbcon_height / (16 * FBCON_SCALE);
+ 	fbcon_col = fbcon_row = 0;
+@@ -761,6 +766,15 @@ fbcon_transmit_ready(void)
  static void
  fbcon_transmit_data(uint8_t c)
  {
@@ -28,7 +38,7 @@ index 22c0c79..a3559c4 100644
 +	 * framebuffer, wiping whatever CoreAnimation just presented.  The
 +	 * persistent ring log is unaffected, so nothing is lost.
 +	 */
-+	if (fbcon_drawn > 150) {
++	if (fbcon_drawn > fbcon_budget) {
 +		return;
 +	}
  	if (c == '\r') {
