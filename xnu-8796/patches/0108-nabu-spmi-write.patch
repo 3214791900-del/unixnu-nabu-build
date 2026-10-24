@@ -121,3 +121,26 @@ index abaa1fd..e723dd2 100644
  #ifdef __cplusplus
  }
  #endif
+diff --git a/iokit/Kernel/arm/NabuBattery.cpp b/iokit/Kernel/arm/NabuBattery.cpp
+index be8f435..6a41aec 100644
+--- a/iokit/Kernel/arm/NabuBattery.cpp
++++ b/iokit/Kernel/arm/NabuBattery.cpp
+@@ -14,6 +14,7 @@
+ #include <pexpert/pexpert.h>
+ /* bsd/dev/nabu_spmi.c */
+ extern "C" int nabu_spmi_init(void);
++extern "C" int nabu_spmi_write_selftest(void);
+ extern "C" int nabu_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
+ 
+ class NabuBattery : public IOPMPowerSource {
+@@ -265,6 +266,10 @@ NabuBattery::start(IOService *provider)
+ 	int real = 0;
+ 	(void)PE_parse_boot_argn("nabubattery", &real, sizeof(real));
+ 	fReal = real == 1 && nabu_spmi_init() == 0;
++	if (fReal) {
++		/* Proves the SPMI write encoding without changing anything. */
++		(void)nabu_spmi_write_selftest();
++	}
+ 	/* Publish a complete source BEFORE registerService wakes powerd. */
+ 	poll();
+ 	if (fReal) {
