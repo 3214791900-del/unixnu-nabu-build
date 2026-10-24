@@ -1,9 +1,9 @@
 diff --git a/iokit/Kernel/arm/NabuAccelerator.cpp b/iokit/Kernel/arm/NabuAccelerator.cpp
 new file mode 100644
-index 0000000..38d71de
+index 0000000..21a36a0
 --- /dev/null
 +++ b/iokit/Kernel/arm/NabuAccelerator.cpp
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,187 @@
 +/*
 + * IOAcceleratorES / IOAcceleratorESLegacy: stubs for the GPU accelerator
 + * services backboardd matches on every boot.
@@ -93,7 +93,29 @@ index 0000000..38d71de
 +	return kIOReturnSuccess;
 +}
 +
-+class IOAcceleratorES : public IOService {
++/*
++ * XNU does not ship IOAccelerator (it lives in Apple's closed GPU kexts), but
++ * CoreAnimation can check the registry class chain with IOObjectConformsTo.
++ * Defining the base here makes the chain
++ *     IOAcceleratorES -> IOAccelerator -> IOService
++ * look like a real accelerator.
++ */
++class IOAccelerator : public IOService {
++	OSDeclareDefaultStructors(IOAccelerator);
++
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(IOAccelerator, IOService);
++
++bool
++IOAccelerator::start(IOService *provider)
++{
++	return IOService::start(provider);
++}
++
++class IOAcceleratorES : public IOAccelerator {
 +	OSDeclareDefaultStructors(IOAcceleratorES);
 +
 +public:
@@ -101,7 +123,7 @@ index 0000000..38d71de
 +	void stop(IOService *provider) APPLE_KEXT_OVERRIDE;
 +};
 +
-+OSDefineMetaClassAndStructors(IOAcceleratorES, IOService);
++OSDefineMetaClassAndStructors(IOAcceleratorES, IOAccelerator);
 +
 +bool
 +IOAcceleratorES::start(IOService *provider)
@@ -141,7 +163,7 @@ index 0000000..38d71de
 +	IOService::stop(provider);
 +}
 +
-+class IOAcceleratorESLegacy : public IOService {
++class IOAcceleratorESLegacy : public IOAccelerator {
 +	OSDeclareDefaultStructors(IOAcceleratorESLegacy);
 +
 +public:
@@ -149,7 +171,7 @@ index 0000000..38d71de
 +	void stop(IOService *provider) APPLE_KEXT_OVERRIDE;
 +};
 +
-+OSDefineMetaClassAndStructors(IOAcceleratorESLegacy, IOService);
++OSDefineMetaClassAndStructors(IOAcceleratorESLegacy, IOAccelerator);
 +
 +bool
 +IOAcceleratorESLegacy::start(IOService *provider)
