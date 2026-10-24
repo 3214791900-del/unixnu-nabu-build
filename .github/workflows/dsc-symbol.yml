@@ -54,15 +54,14 @@ jobs:
       - name: Extract dyld_shared_cache from the cryptex
         run: |
           mkdir -p /tmp/apfsmnt
-          sudo apfs-fuse /tmp/sysos.dmg /tmp/apfsmnt || {
-            echo "apfs-fuse failed, listing what we have:"; ls -l /tmp; mount | grep -i fuse || true; exit 1; }
+          sudo apfs-fuse /tmp/sysos.dmg /tmp/apfsmnt
           echo "--- mounted ---"
-          ls -l /tmp/apfsmnt | head
+          sudo ls -l /tmp/apfsmnt | head
           dsc=/tmp/apfsmnt/root/System/Library/Caches/com.apple.dyld
           echo "--- source ---"
-          ls -l "$dsc" | head -8
-          mkdir -p "$PWD/dsc"
-          sudo cp "$dsc"/dyld_shared_cache_arm64* "$PWD/dsc"/ || true
+          sudo ls -l "$dsc" | head -8
+          sudo mkdir -p "$PWD/dsc"
+          sudo bash -c "cp '$dsc'/dyld_shared_cache_arm64* '$PWD/dsc'/" || true
           sudo chown -R "$(id -u):$(id -g)" "$PWD/dsc"
           echo "--- copied ---"
           ls -l "$PWD/dsc" | head -8
