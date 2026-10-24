@@ -1,0 +1,123 @@
+diff --git a/bsd/dev/nabu_spmi.c b/bsd/dev/nabu_spmi.c
+index 820ec8c..406a585 100644
+--- a/bsd/dev/nabu_spmi.c
++++ b/bsd/dev/nabu_spmi.c
+@@ -9,6 +9,7 @@
+ #include <sys/param.h>
+ #include <sys/systm.h>
+ #include <machine/machine_routines.h>
++#include <pexpert/pexpert.h>
+ #include <IOKit/IOLocks.h>
+ #include "nabu_spmi.h"
+ 
+@@ -123,4 +124,95 @@ nabu_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
+ 	IOLockUnlock(sp_lock);
+ 	return -1;
+ }
++
++/*
++ * SPMI write path.  The observer command word puts the register in bits 4..11
++ * and - for EXT_WRITEL - the data in bits 12..19; bit 27 selects EXT_READL.
++ * Nothing here is called on a normal boot: nabu_spmi_write() refuses unless the
++ * boot arg nabuspmi_write=1 is present, because programming the wrong PMIC
++ * register can brown the board out.
++ */
++static int
++sp_write_enabled(void)
++{
++	static int enabled = -1;
++	if (enabled < 0) {
++		int v = 0;
++		enabled = PE_parse_boot_argn("nabuspmi_write", &v, sizeof(v)) && v;
++	}
++	return enabled;
++}
++
++int
++nabu_spmi_write(unsigned sid, unsigned addr, uint8_t value)
++{
++	unsigned peripheral = addr >> 8;
++
++	if (!sp_ready || sid != 0 || addr > 0xffffu) {
++		return -1;
++	}
++	if (!sp_write_enabled() || sp_count == 0 || sp_count > 512) {
++		return -1;
++	}
++	IOLockLock(sp_lock);
++	uint16_t apid = sp_find_apid((sid << 8) | peripheral);
++	if (apid == SP_NO_APID || sp_poisoned[apid]) {
++		IOLockUnlock(sp_lock);
++		return -1;
++	}
++	unsigned off = 0x80u * apid;
++	uint32_t cmd = ((addr & 0xffu) << 4) | ((uint32_t)value << 12);
++	__asm__ volatile("dmb oshst" ::: "memory");
++	*(volatile uint32_t *)(sp_obs + off) = cmd;    /* EXT_WRITEL: bit 27 clear */
++	__asm__ volatile("dsb osh" ::: "memory");
++	for (unsigned i = 0; i < 1000; ++i) {
++		uint32_t status = sp_rd(sp_obs, off + 0x08u);
++		if (status & 1u) {
++			int rc = (status & 0x0eu) ? -1 : 0;
++			IOLockUnlock(sp_lock);
++			return rc;
++		}
++		delay(1);
++	}
++	sp_poisoned[apid] = true;
++	printf("NABU BATTERY: SPMI write timeout addr=%#x APID=%u disabled\n", addr, apid);
++	IOLockUnlock(sp_lock);
++	return -1;
++}
++
++/*
++ * Write self-test: read a register, write the same value back, read again.  A
++ * byte-identical result means the write command encoding is right, and because
++ * the value written equals what was there nothing actually changes.
++ */
++int
++nabu_spmi_write_selftest(void)
++{
++	/* PMIC peripheral revision registers: read-only-ish, stable, harmless. */
++	static const uint16_t probe[] = { 0x1004, 0x1104, 0x1204, 0x1304, 0x4804 };
++	uint8_t first, after;
++	int tested = 0;
++
++	if (!sp_ready || !sp_write_enabled()) {
++		return -1;
++	}
++	for (unsigned i = 0; i < sizeof(probe) / sizeof(probe[0]); i++) {
++		if (nabu_spmi_read(0, probe[i], &first) != 0) {
++			continue;
++		}
++		if (nabu_spmi_write(0, probe[i], first) != 0) {
++			printf("NABU BATTERY: SPMI write selftest addr=%#x: write refused\n",
++			    probe[i]);
++			continue;
++		}
++		if (nabu_spmi_read(0, probe[i], &after) != 0) {
++			continue;
++		}
++		printf("NABU BATTERY: SPMI write selftest addr=%#x value=%#x -> %#x %s\n",
++		    probe[i], first, after, first == after ? "OK" : "MISMATCH");
++		tested++;
++	}
++	return tested > 0 ? 0 : -1;
++}
++
+ #endif /* ARM64_BOARD_CONFIG_NABU */
+diff --git a/bsd/dev/nabu_spmi.h b/bsd/dev/nabu_spmi.h
+index abaa1fd..e723dd2 100644
+--- a/bsd/dev/nabu_spmi.h
++++ b/bsd/dev/nabu_spmi.h
+@@ -8,6 +8,10 @@ extern "C" {
+ int nabu_spmi_init(void);
+ /* Thread context only; 0 success, -1 failure; *out unchanged on failure. */
+ int nabu_spmi_read(unsigned sid, unsigned addr, uint8_t *out);
++/* Thread context only; writes are refused unless nabuspmi_write=1. */
++int nabu_spmi_write(unsigned sid, unsigned addr, uint8_t value);
++/* Read -> write the same value back -> read again; 0 when they match. */
++int nabu_spmi_write_selftest(void);
+ #ifdef __cplusplus
+ }
+ #endif
