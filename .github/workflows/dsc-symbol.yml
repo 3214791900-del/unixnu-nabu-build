@@ -40,10 +40,12 @@ jobs:
 
       - name: Build apfs-fuse
         run: |
-          git clone -q --depth 1 https://github.com/sgan81/apfs-fuse.git /tmp/apfs
-          cmake -S /tmp/apfs -B /tmp/apfs/build -DCMAKE_BUILD_TYPE=Release >/dev/null
-          sudo cmake --install /tmp/apfs/build >/dev/null
-          which apfs-fuse
+          git clone -q --depth 1 --recurse-submodules --shallow-submodules \
+            https://github.com/sgan81/apfs-fuse.git /tmp/apfs
+          cmake -S /tmp/apfs -B /tmp/apfs/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/apfs/build -j"\"
+          sudo cmake --install /tmp/apfs/build
+          command -v apfs-fuse
 
       - name: Fetch the SystemOS cryptex
         run: |
