@@ -1,0 +1,31 @@
+--- a/iokit/Kernel/arm/NabuKeyStore.cpp
++++ b/iokit/Kernel/arm/NabuKeyStore.cpp
+@@ -430,5 +430,9 @@
+-	char name[32];
+-	proc_selfname(name, sizeof(name));
+-	IOLog("NABU AKS: %s sel %u arg0 %llu in %u/%u out %u/%u -> 0x%x\n", name, selector,
+-	    arg0, in_scalars, in_struct, out_scalars, out_struct, ret);
+-	return ret;
++	/* Cap the spam: the flood repaints the panel and hides the display. */
++	static uint32_t nabu_aks_logs;
++	if (nabu_aks_logs++ < 32) {
++		char name[32];
++		proc_selfname(name, sizeof(name));
++		IOLog("NABU AKS: %s sel %u arg0 %llu in %u/%u out %u/%u -> 0x%x\n", name, selector,
++		    arg0, in_scalars, in_struct, out_scalars, out_struct, ret);
++	}
++	return ret;
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7414,2 +7414,9 @@
+-			/* NABU runs every iOS binary this way: one short line per exec. */
+-			printf("exec %s\n", p->p_name);
++			/* NABU runs every iOS binary this way.  Cap the flood: a boot
++			 * spawns hundreds of processes and every line repaints the
++			 * panel, hiding whatever CoreAnimation has drawn. */
++			{
++				static uint32_t nabu_exec_logs;
++				if (nabu_exec_logs++ < 48) {
++					printf("exec %s\n", p->p_name);
++				}
++			}
