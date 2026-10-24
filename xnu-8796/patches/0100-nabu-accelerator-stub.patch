@@ -1,9 +1,9 @@
 diff --git a/iokit/Kernel/arm/NabuAccelerator.cpp b/iokit/Kernel/arm/NabuAccelerator.cpp
 new file mode 100644
-index 0000000..00a3002
+index 0000000..ff0b4ba
 --- /dev/null
 +++ b/iokit/Kernel/arm/NabuAccelerator.cpp
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,126 @@
 +/*
 + * IOAcceleratorES / IOAcceleratorESLegacy: stubs for the GPU accelerator
 + * services backboardd matches on every boot.
@@ -24,6 +24,7 @@ index 0000000..00a3002
 +#include <IOKit/IOLib.h>
 +#include <IOKit/IOService.h>
 +#include <IOKit/IOUserClient.h>
++#include <IOKit/IOKitKeys.h>
 +
 +#define NABU_ACCEL_LOG(fmt, ...)	IOLog("NABU ACCEL: " fmt "\n", ##__VA_ARGS__)
 +
