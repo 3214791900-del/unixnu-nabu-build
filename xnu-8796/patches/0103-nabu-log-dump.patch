@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/nabu_ufs.c b/bsd/dev/nabu_ufs.c
-index e8c38a6..0d9824e 100644
+index e8c38a6..1884f72 100644
 --- a/bsd/dev/nabu_ufs.c
 +++ b/bsd/dev/nabu_ufs.c
 @@ -807,6 +807,29 @@ nabu_log_start(void)
@@ -32,11 +32,20 @@ index e8c38a6..0d9824e 100644
  /*
   * Dump the persisted ring (boot-arg nabulog_dump=1): the console log of the
   * PREVIOUS boot, printed on the panel this time, so a stuck boot can be read
-@@ -841,7 +864,22 @@ nabu_log_dump(void)
+@@ -841,7 +864,31 @@ nabu_log_dump(void)
  	if (total < len) {
  		len = (uint32_t)total;
  	}
 -	start = (uint32_t)((total - len) % NABU_LOG_SIZE);
++	/*
++	 * The filter above keeps only a handful of lines, so scan the whole
++	 * ring: the panel shows the tail of the result, which is exactly the
++	 * most recent accelerator / matching events.
++	 */
++	len = NABU_LOG_SIZE;
++	if (total < len) {
++		len = (uint32_t)total;
++	}
 +	/*
 +	 * Which 16 KiB slice of the ring to print.  The ring is 4 MiB and the
 +	 * only way to read it on this port is to photograph the panel, so let
@@ -56,7 +65,7 @@ index e8c38a6..0d9824e 100644
  	if (start + len > NABU_LOG_SIZE) {
  		len = NABU_LOG_SIZE - start;
  	}
-@@ -863,7 +901,9 @@ nabu_log_dump(void)
+@@ -863,7 +910,9 @@ nabu_log_dump(void)
  
  		if (c == '\n') {
  			line[col] = '\0';
