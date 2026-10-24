@@ -1,8 +1,8 @@
 diff --git a/bsd/dev/nabu_ufs.c b/bsd/dev/nabu_ufs.c
-index e8c38a6..1884f72 100644
+index e8c38a6..dc2c815 100644
 --- a/bsd/dev/nabu_ufs.c
 +++ b/bsd/dev/nabu_ufs.c
-@@ -807,6 +807,29 @@ nabu_log_start(void)
+@@ -807,6 +807,31 @@ nabu_log_start(void)
  	}
  }
  
@@ -12,6 +12,8 @@ index e8c38a6..1884f72 100644
 + * else in the ring is daemon spam (one exec line per spawn, one AKS line per
 + * key-store call) and would bury them.
 + */
++extern void fbcon_freeze(void);
++
 +static int
 +nabu_log_keep(const char *line)
 +{
@@ -32,7 +34,7 @@ index e8c38a6..1884f72 100644
  /*
   * Dump the persisted ring (boot-arg nabulog_dump=1): the console log of the
   * PREVIOUS boot, printed on the panel this time, so a stuck boot can be read
-@@ -841,7 +864,31 @@ nabu_log_dump(void)
+@@ -841,7 +866,31 @@ nabu_log_dump(void)
  	if (total < len) {
  		len = (uint32_t)total;
  	}
@@ -65,7 +67,7 @@ index e8c38a6..1884f72 100644
  	if (start + len > NABU_LOG_SIZE) {
  		len = NABU_LOG_SIZE - start;
  	}
-@@ -863,7 +910,9 @@ nabu_log_dump(void)
+@@ -863,7 +912,9 @@ nabu_log_dump(void)
  
  		if (c == '\n') {
  			line[col] = '\0';
@@ -76,3 +78,11 @@ index e8c38a6..1884f72 100644
  			col = 0;
  			continue;
  		}
+@@ -876,6 +927,7 @@ nabu_log_dump(void)
+ 		printf("%s\n", line);
+ 	}
+ 	printf("NABU LOG: ---- end ----\n");
++	fbcon_freeze();	/* keep exactly this on the panel */
+ 	/*
+ 	 * Keep the dump on the panel: the new boot's console would scroll it away
+ 	 * immediately. Panics still draw (see _cnputs).
