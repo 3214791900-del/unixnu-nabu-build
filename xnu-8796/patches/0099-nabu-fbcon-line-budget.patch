@@ -1,5 +1,5 @@
 diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
-index 22c0c79..e32d99c 100644
+index 22c0c79..afde35d 100644
 --- a/pexpert/arm/pe_serial.c
 +++ b/pexpert/arm/pe_serial.c
 @@ -720,6 +720,8 @@ extern unsigned char iso_font[256 * 16];
@@ -11,7 +11,21 @@ index 22c0c79..e32d99c 100644
  
  static void
  fbcon_clear_row(uint32_t row)
-@@ -735,6 +737,7 @@ fbcon_clear_row(uint32_t row)
+@@ -732,9 +734,21 @@ fbcon_clear_row(uint32_t row)
+ 	}
+ }
+ 
++/*
++ * Called when the panel must keep exactly what was just printed (the ring
++ * dump calls this): pin the line budget to what has been drawn so nothing
++ * else repaints the screen.
++ */
++void
++fbcon_freeze(void)
++{
++	fbcon_budget = fbcon_drawn;
++}
++
  static void
  fbcon_newline(void)
  {
@@ -19,7 +33,7 @@ index 22c0c79..e32d99c 100644
  	fbcon_col = 0;
  	fbcon_row = (fbcon_row + 1) % fbcon_rows;
  	fbcon_clear_row(fbcon_row);
-@@ -744,6 +747,8 @@ fbcon_newline(void)
+@@ -744,6 +758,8 @@ fbcon_newline(void)
  static void
  fbcon_init(void)
  {
@@ -28,7 +42,7 @@ index 22c0c79..e32d99c 100644
  	fbcon_cols = fbcon_width / (8 * FBCON_SCALE);
  	fbcon_rows = fbcon_height / (16 * FBCON_SCALE);
  	fbcon_col = fbcon_row = 0;
-@@ -761,6 +766,15 @@ fbcon_transmit_ready(void)
+@@ -761,6 +777,15 @@ fbcon_transmit_ready(void)
  static void
  fbcon_transmit_data(uint8_t c)
  {
