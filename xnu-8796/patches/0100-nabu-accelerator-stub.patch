@@ -1,9 +1,9 @@
 diff --git a/iokit/Kernel/arm/NabuAccelerator.cpp b/iokit/Kernel/arm/NabuAccelerator.cpp
 new file mode 100644
-index 0000000..956c75f
+index 0000000..00a3002
 --- /dev/null
 +++ b/iokit/Kernel/arm/NabuAccelerator.cpp
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,125 @@
 +/*
 + * IOAcceleratorES / IOAcceleratorESLegacy: stubs for the GPU accelerator
 + * services backboardd matches on every boot.
@@ -12,16 +12,66 @@ index 0000000..956c75f
 + * CoreAnimation never built a renderer: the UI stayed black while the
 + * CoreGraphics progress bar (which needs no accelerator) worked fine.
 + *
-+ * These publish do-nothing services under the names backboardd looks for.
-+ * If CA treats a failed IOServiceOpen as "no GPU" it should fall back to its
-+ * software renderer; if it insists on a working accelerator, the next step is
-+ * a real GPU path.
++ * Both services hand out a user client that opens successfully and answers
++ * every selector with success and zeroed outputs, so a caller that only
++ * probes for "is there an accelerator, can I open it" is satisfied.  If CA
++ * then falls back to its software renderer we get the UI; if it insists on a
++ * real GPU the next step is a genuine accelerator implementation.
 + */
 +#include <pexpert/arm64/board_config.h>
 +
 +#if defined(NABU)
 +#include <IOKit/IOLib.h>
 +#include <IOKit/IOService.h>
++#include <IOKit/IOUserClient.h>
++
++#define NABU_ACCEL_LOG(fmt, ...)	IOLog("NABU ACCEL: " fmt "\n", ##__VA_ARGS__)
++
++class IOAcceleratorESUserClient : public IOUserClient {
++	OSDeclareDefaultStructors(IOAcceleratorESUserClient);
++
++public:
++	IOReturn clientClose(void) APPLE_KEXT_OVERRIDE;
++	IOReturn externalMethod(uint32_t selector, IOExternalMethodArguments *args,
++	    IOExternalMethodDispatch *dispatch, OSObject *target,
++	    void *reference) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(IOAcceleratorESUserClient, IOUserClient);
++
++IOReturn
++IOAcceleratorESUserClient::clientClose(void)
++{
++	terminate();
++	return kIOReturnSuccess;
++}
++
++/*
++ * Accept everything: a caller that only wants to know whether the accelerator
++ * can be opened and driven gets a clean success.  Outputs are zeroed so a
++ * caller reading capability words sees "nothing supported" rather than
++ * uninitialised memory.
++ */
++IOReturn
++IOAcceleratorESUserClient::externalMethod(uint32_t selector, IOExternalMethodArguments *args,
++    IOExternalMethodDispatch *dispatch, OSObject *target, void *reference)
++{
++	static uint32_t logged;
++
++	if (logged < 24) {
++		logged++;
++		NABU_ACCEL_LOG("user client sel %u in %u/%u out %u/%u", selector,
++		    args->scalarInputCount, args->structureInputSize,
++		    args->scalarOutputCount, args->structureOutputSize);
++	}
++	for (uint32_t i = 0; i < args->scalarOutputCount; i++) {
++		args->scalarOutput[i] = 0;
++	}
++	if (args->structureOutputDescriptor == NULL && args->structureOutput != NULL) {
++		bzero(args->structureOutput, args->structureOutputSize);
++	}
++	return kIOReturnSuccess;
++}
 +
 +class IOAcceleratorES : public IOService {
 +	OSDeclareDefaultStructors(IOAcceleratorES);
@@ -39,8 +89,9 @@ index 0000000..956c75f
 +	if (!IOService::start(provider)) {
 +		return false;
 +	}
++	setProperty(kIOUserClientClassKey, "IOAcceleratorESUserClient");
 +	registerService();
-+	IOLog("NABU ACCEL: IOAcceleratorES stub registered\n");
++	NABU_ACCEL_LOG("IOAcceleratorES stub registered");
 +	return true;
 +}
 +
@@ -66,8 +117,9 @@ index 0000000..956c75f
 +	if (!IOService::start(provider)) {
 +		return false;
 +	}
++	setProperty(kIOUserClientClassKey, "IOAcceleratorESUserClient");
 +	registerService();
-+	IOLog("NABU ACCEL: IOAcceleratorESLegacy stub registered\n");
++	NABU_ACCEL_LOG("IOAcceleratorESLegacy stub registered");
 +	return true;
 +}
 +
