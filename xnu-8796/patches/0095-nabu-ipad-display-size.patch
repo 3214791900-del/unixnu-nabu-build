@@ -1,0 +1,38 @@
+--- a/iokit/Kernel/arm/NabuFramebuffer.cpp
++++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
+@@ -63,8 +63,15 @@
+  * Boot-arg nabufb_native=1 presents the real panel size instead.
+  */
+-#define NABU_FB_LOGICAL_W              1125
+-#define NABU_FB_LOGICAL_H              2436
++/*
++ * The root filesystem is the iPad Pro 10.5 (iPadOS 16.6.1) image, whose
++ * asset catalogs only carry the iPad screen sizes.  Inside that userland
++ * SpringBoard died with
++ *   NSInternalInconsistencyException: Failed to load bounding path bitmap
++ *   data from the asset manager for asset name:
++ *   BoundingPathBitmap-1125x2436-375x812-3.00x
++ * so present iPad7,3 instead: 1668x2224 pixels, 834x1112 points @2x.
++ * /chosen/display-scale must be 2 in the ADT for this (mkadt.py).
++ */
++#define NABU_FB_LOGICAL_W              1668
++#define NABU_FB_LOGICAL_H              2224
+ #define NABU_FB_FORMAT_BGRA            0x42475241
+ 
+ class IOMobileFramebuffer : public IOService {
+--- a/iokit/Kernel/arm/hid/NabuHID.cpp
++++ b/iokit/Kernel/arm/hid/NabuHID.cpp
+@@ -423,9 +423,9 @@
+ 	int native = 0;
+ 	PE_parse_boot_argn("nabufb_native", &native, sizeof(native));
+-	fLogicalW = native ? 1080 : 1125;
+-	fLogicalH = native ? 2400 : 2436;
+-	fOffX = (fLogicalW - 1080) / 2;
+-	fOffY = (fLogicalH - 2400) / 2;
++	fLogicalW = native ? 1600 : 1668;
++	fLogicalH = native ? 2560 : 2224;
++	fOffX = (fLogicalW - 1600) / 2;
++	fOffY = (fLogicalH - 2560) / 2;
+ 	/* The digitizer covers the main display (backboardd maps it 1:1). */
+ 	setProperty("DisplayIntegrated", kOSBooleanTrue);
+ 	setProperty("SurfaceWidth", (unsigned long long)(68 << 16), 32);	/* mm, 16.16 */
