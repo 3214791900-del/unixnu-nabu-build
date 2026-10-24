@@ -1,0 +1,11 @@
+--- a/bsd/dev/nabu_ufs.c
++++ b/bsd/dev/nabu_ufs.c
+@@ -876,5 +876,7 @@
+ 	if (total < len) {
+ 		len = (uint32_t)total;
+ 	}
+-	start = (uint32_t)((total - len) % NABU_LOG_SIZE);
++	/* Head of the ring instead of the tail: the display bring-up lines
++	 * (IOMFB selectors, vsync registrations) are at the beginning. */
++	start = 0;
+ 	if (start + len > NABU_LOG_SIZE) {
