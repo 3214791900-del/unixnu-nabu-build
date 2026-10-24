@@ -1,6 +1,6 @@
 --- a/iokit/Kernel/arm/NabuFramebuffer.cpp
 +++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
-@@ -66,3 +66,13 @@
+@@ -66,3 +66,16 @@
 -#define NABU_FB_LOGICAL_W              1125
 -#define NABU_FB_LOGICAL_H              2436
 +/*
@@ -10,11 +10,14 @@
 + *   NSInternalInconsistencyException: Failed to load bounding path bitmap
 + *   data from the asset manager for asset name:
 + *   BoundingPathBitmap-1125x2436-375x812-3.00x
-+ * so present iPad7,3 instead: 1668x2224 pixels, 834x1112 points @2x.
++ * Present iPad Pro 12.9 instead: 2048x2732 pixels, 1024x1366 points @2x.
++ * It is the only iPad size larger than the 1600x2560 panel in BOTH
++ * dimensions, which the panel copy path requires (fOffX/fOffY must be
++ * positive: they are (logical - panel) / 2).
 + * /chosen/display-scale must be 2 in the ADT for this (mkadt.py).
 + */
-+#define NABU_FB_LOGICAL_W              1668
-+#define NABU_FB_LOGICAL_H              2224
++#define NABU_FB_LOGICAL_W              2048
++#define NABU_FB_LOGICAL_H              2732
  #define NABU_FB_FORMAT_BGRA            0x42475241
 --- a/iokit/Kernel/arm/hid/NabuHID.cpp
 +++ b/iokit/Kernel/arm/hid/NabuHID.cpp
@@ -24,8 +27,8 @@
 -	fLogicalH = native ? 2400 : 2436;
 -	fOffX = (fLogicalW - 1080) / 2;
 -	fOffY = (fLogicalH - 2400) / 2;
-+	fLogicalW = native ? 1600 : 1668;
-+	fLogicalH = native ? 2560 : 2224;
++	fLogicalW = native ? 1600 : 2048;
++	fLogicalH = native ? 2560 : 2732;
 +	fOffX = (fLogicalW - 1600) / 2;
 +	fOffY = (fLogicalH - 2560) / 2;
  	/* The digitizer covers the main display (backboardd maps it 1:1). */
