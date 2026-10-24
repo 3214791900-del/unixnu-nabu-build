@@ -76,11 +76,16 @@ jobs:
         run: |
           DSC="$PWD/dsc/dyld_shared_cache_arm64"
           : > re.txt
-          for s in ${{ inputs.symbols }}; do
-            echo "=== symaddr $s ===" >> re.txt
-            ./ipsw dyld symaddr "$DSC" --image QuartzCore --symbol "$s" >> re.txt 2>&1 || true
-            ./ipsw dyld symaddr "$DSC" "$s" >> re.txt 2>&1 || true
-          done
+          echo "=== symaddr help ===" >> re.txt
+          ./ipsw dyld symaddr --help >> re.txt 2>&1 || true
+          echo "=== QuartzCore symbol dump ===" >> re.txt
+          ./ipsw dyld symaddr "$DSC" --image QuartzCore >> qc.txt 2>&1 || \
+            ./ipsw dyld symaddr "$DSC" QuartzCore >> qc.txt 2>&1 || true
+          wc -l qc.txt >> re.txt || true
+          echo "=== renderer contexts ===" >> re.txt
+          grep -aiE 'SWContext|GLESContext|MetalContext|NullContext|new_context' qc.txt | head -80 >> re.txt || true
+          echo "=== any *Context* ===" >> re.txt
+          grep -ai 'Context' qc.txt | head -40 >> re.txt || true
           cat re.txt
 
       - uses: actions/upload-artifact@v4
