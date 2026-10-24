@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/nabu_ufs.c b/bsd/dev/nabu_ufs.c
-index e8c38a6..dc2c815 100644
+index e8c38a6..2feb926 100644
 --- a/bsd/dev/nabu_ufs.c
 +++ b/bsd/dev/nabu_ufs.c
 @@ -807,6 +807,31 @@ nabu_log_start(void)
@@ -67,18 +67,29 @@ index e8c38a6..dc2c815 100644
  	if (start + len > NABU_LOG_SIZE) {
  		len = NABU_LOG_SIZE - start;
  	}
-@@ -863,7 +912,9 @@ nabu_log_dump(void)
+@@ -863,7 +912,20 @@ nabu_log_dump(void)
  
  		if (c == '\n') {
  			line[col] = '\0';
 -			printf("%s\n", line);
 +			if (nabu_log_keep(line)) {
-+				printf("%s\n", line);
++				/*
++				 * IOKit matching lines are ~200 chars and the panel is
++				 * 100 columns wide, so the interesting tail ("-> none"
++				 * or "-> IOAcceleratorES") falls off the screen.
++				 * Print only the tail of those.
++				 */
++				size_t n = strlen(line);
++				if (n > 60 && strnstr(line, "matching", n) != NULL) {
++					printf("...%s\n", line + n - 60);
++				} else {
++					printf("%s\n", line);
++				}
 +			}
  			col = 0;
  			continue;
  		}
-@@ -876,6 +927,7 @@ nabu_log_dump(void)
+@@ -876,6 +938,7 @@ nabu_log_dump(void)
  		printf("%s\n", line);
  	}
  	printf("NABU LOG: ---- end ----\n");
