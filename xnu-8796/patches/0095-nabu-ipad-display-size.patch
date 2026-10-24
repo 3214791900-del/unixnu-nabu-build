@@ -1,8 +1,6 @@
 --- a/iokit/Kernel/arm/NabuFramebuffer.cpp
 +++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
-@@ -63,8 +63,15 @@
-  * Boot-arg nabufb_native=1 presents the real panel size instead.
-  */
+@@ -66,3 +66,13 @@
 -#define NABU_FB_LOGICAL_W              1125
 -#define NABU_FB_LOGICAL_H              2436
 +/*
@@ -18,12 +16,9 @@
 +#define NABU_FB_LOGICAL_W              1668
 +#define NABU_FB_LOGICAL_H              2224
  #define NABU_FB_FORMAT_BGRA            0x42475241
- 
- class IOMobileFramebuffer : public IOService {
 --- a/iokit/Kernel/arm/hid/NabuHID.cpp
 +++ b/iokit/Kernel/arm/hid/NabuHID.cpp
-@@ -423,9 +423,9 @@
- 	int native = 0;
+@@ -424,6 +424,6 @@
  	PE_parse_boot_argn("nabufb_native", &native, sizeof(native));
 -	fLogicalW = native ? 1080 : 1125;
 -	fLogicalH = native ? 2400 : 2436;
@@ -34,5 +29,3 @@
 +	fOffX = (fLogicalW - 1600) / 2;
 +	fOffY = (fLogicalH - 2560) / 2;
  	/* The digitizer covers the main display (backboardd maps it 1:1). */
- 	setProperty("DisplayIntegrated", kOSBooleanTrue);
- 	setProperty("SurfaceWidth", (unsigned long long)(68 << 16), 32);	/* mm, 16.16 */
