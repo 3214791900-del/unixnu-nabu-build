@@ -1,0 +1,92 @@
+# Symbolicate shared-cache addresses without downloading the 3.2 GB cache.
+#
+# The dyld shared cache lives inside the SystemOS cryptex of the IPSW.  The
+# build runner can mount it (apfs-fuse) and hand the file straight to `ipsw
+# dyld a2s`, so only a few kilobytes of text have to leave GitHub.
+name: dsc-symbol
+
+on:
+  workflow_dispatch:
+    inputs:
+      addrs:
+        description: Unslid addresses (space separated)
+        default: "0x1C103B030 0x1C103B530"
+
+permissions:
+  contents: read
+
+env:
+  IPSW_URL: https://updates.cdn-apple.com/2023SummerFCS/fullrestores/042-44385/366890C4-D9B5-4938-B399-C19FB58DBEE0/iPad_Pro_HFR_16.6.1_20G81_Restore.ipsw
+  SYS_DMG: 096-56782-083.dmg
+  IPSW_TOOL: ipsw_3.1.739_linux_x86_64.tar.gz
+
+jobs:
+  symbol:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: Deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake g++ libfuse3-dev fuse3 zlib1g-dev pkg-config
+          sudo modprobe fuse || true
+
+      - name: Build apfs-fuse
+        run: |
+          git clone -q --depth 1 https://github.com/sgan81/apfs-fuse.git /tmp/apfs
+          cmake -S /tmp/apfs -B /tmp/apfs/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          sudo cmake --install /tmp/apfs/build >/dev/null
+          which apfs-fuse
+
+      - name: Fetch the SystemOS cryptex
+        run: |
+          curl -sSL "$IPSW_URL" -o ipsw.zip
+          unzip -o -q ipsw.zip "$SYS_DMG"
+          ls -l "$SYS_DMG"
+
+      - name: Extract dyld_shared_cache from the cryptex
+        run: |
+          mkdir -p /tmp/sysos
+          ln -sf "$PWD/$SYS_DMG" /tmp/sysos.dmg
+          sudo apfs-fuse /tmp/sysos.dmg /tmp/sysos
+          dsc=/tmp/sysos/root/System/Library/Caches/com.apple.dyld
+          echo "--- source ---"
+          ls -l "$dsc" | head -8
+          mkdir -p /tmp/dsc
+          sudo cp "$dsc"/dyld_shared_cache_arm64* /tmp/dsc/ || true
+          sudo chown -R "$(id -u):$(id -g)" /tmp/dsc
+          echo "--- copied ---"
+          ls -l /tmp/dsc | head -8
+          du -sh /tmp/dsc
+
+      - name: ipsw tool
+        run: |
+          curl -sSL "https://github.com/blacktop/ipsw/releases/download/v3.1.739/$IPSW_TOOL" -o ipsw.tgz
+          tar xzf ipsw.tgz
+          ./ipsw version || true
+
+      - name: Symbolicate
+        run: |
+          DSC=/tmp/dsc/dyld_shared_cache_arm64
+          : > symbols.txt
+          for a in ${{ inputs.addrs }}; do
+            echo "=== $a ===" >> symbols.txt
+            ./ipsw dyld a2s "$DSC" "$a" -i -d >> symbols.txt 2>&1 || echo "lookup failed" >> symbols.txt
+            ./ipsw dyld a2s "$DSC" "$a" -i >> symbols.txt 2>&1 || true
+            echo >> symbols.txt
+          done
+          cat symbols.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: symbols
+          path: symbols.txt
+          if-no-files-found: warn
