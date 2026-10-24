@@ -1,0 +1,26 @@
+diff --git a/iokit/Kernel/arm/NabuPlatformExpert.cpp b/iokit/Kernel/arm/NabuPlatformExpert.cpp
+index b80f275..25b91b2 100644
+--- a/iokit/Kernel/arm/NabuPlatformExpert.cpp
++++ b/iokit/Kernel/arm/NabuPlatformExpert.cpp
+@@ -69,6 +69,21 @@ NabuPlatformExpert::processTopLevel(IORegistryEntry *root)
+ 	 */
+ 	IORegistryEntry *armio = root->childFromPath("arm-io", gIODTPlane);
+ 	if (armio != NULL) {
++		/*
++		 * Print the /arm-io child list: the GPU work needs the real node
++		 * names and addresses (kgsl-3d0, gmu, smmu, gpucc ...) and the only
++		 * way to see the device tree here is to log it.
++		 */
++		OSIterator *it = armio->getChildIterator(gIODTPlane);
++		if (it != NULL) {
++			IORegistryEntry *child;
++			uint32_t n = 0;
++			while ((child = (IORegistryEntry *)it->getNextObject()) != NULL && n < 128) {
++				IOLog("NABU DT: arm-io child %s\n", child->getName());
++				n++;
++			}
++			it->release();
++		}
+ 		createNubs(this, IODTFindMatchingEntries(armio, kIODTExclusive, "('gic')"));
+ 		armio->release();
+ 	}
