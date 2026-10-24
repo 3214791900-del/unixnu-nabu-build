@@ -78,23 +78,26 @@ index 0000000..956c75f
 +}
 +#endif /* NABU */
 diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
-index 349caa6..f230a8a 100644
+index 38cab6f..4960b0c 100644
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -2,5 +2,13 @@ static const char * configTable[] = {
+@@ -7,6 +7,16 @@ static const char * configTable[] = {
      "     'IOClass'         = AppleM2ScalerCSCDriver;"
      "     'IOProviderClass' = IOResources;"
      "   },"
 +    "   {"
-+    "     'IOClass'         = IOAcceleratorES;"
++    "     'IOClass' = IOAcceleratorES;"
 +    "     'IOProviderClass' = IOResources;"
++    "     'IOMatchCategory' = IOAcceleratorES;"
 +    "   },"
 +    "   {"
-+    "     'IOClass'         = IOAcceleratorESLegacy;"
++    "     'IOClass' = IOAcceleratorESLegacy;"
 +    "     'IOProviderClass' = IOResources;"
++    "     'IOMatchCategory' = IOAcceleratorESLegacy;"
 +    "   },"
  #endif
- };
+     "   {"
+     "     'IOClass'         = IOPanicPlatform;"
 diff --git a/iokit/conf/files.arm64 b/iokit/conf/files.arm64
 index 9093f2e..51fbdb2 100644
 --- a/iokit/conf/files.arm64
