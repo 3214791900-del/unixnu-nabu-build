@@ -136,7 +136,7 @@ index e8c38a6..a766164 100644
  	 * Keep the dump on the panel: the new boot's console would scroll it away
  	 * immediately. Panics still draw (see _cnputs).
 diff --git a/bsd/dev/nabu_usb.c b/bsd/dev/nabu_usb.c
-index 7c0ee21..297401e 100644
+index 7c0ee21..bc20e3b 100644
 --- a/bsd/dev/nabu_usb.c
 +++ b/bsd/dev/nabu_usb.c
 @@ -334,18 +334,17 @@ ud_stall(void)
@@ -150,8 +150,8 @@ index 7c0ee21..297401e 100644
 -static const uint8_t ud_cfg_desc[80] = {
 -	9, 2, 80, 0, 2, 1, 0, 0x80, 250,                /* config: 2 interfaces, 500 mA */
 -	9, 4, 0, 0, 1, 0x02, 0x06, 0x00, 0,             /* comm interface 0: CDC ECM, 1 endpoint */
-+static const uint8_t ud_cfg_desc[75] = {
-+	9, 2, 75, 0, 2, 1, 0, 0x80, 250,                /* config: 2 interfaces, 500 mA */
++static const uint8_t ud_cfg_desc[62] = {
++	9, 2, 62, 0, 2, 1, 0, 0x80, 250,                /* config: 2 interfaces, 500 mA */
 +	9, 4, 0, 0, 1, 0x02, 0x02, 0x01, 0,             /* comm interface 0: CDC-ACM, 1 endpoint */
  	5, 0x24, 0x00, 0x10, 0x01,                      /* header, CDC 1.10 */
 +	4, 0x24, 0x02, 0x02,                            /* ACM: line coding + serial state */
