@@ -1,8 +1,4 @@
 # Symbolicate shared-cache addresses without downloading the 3.2 GB cache.
-#
-# The dyld shared cache lives inside the SystemOS cryptex of the IPSW.  The
-# build runner can mount it (apfs-fuse) and hand the file straight to `ipsw
-# dyld a2s`, so only a few kilobytes of text have to leave GitHub.
 name: dsc-symbol
 
 on:
@@ -37,6 +33,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq cmake g++ libfuse3-dev fuse3 zlib1g-dev libbz2-dev libssl-dev pkg-config
           sudo modprobe fuse || true
+          ls -l /dev/fuse || true
 
       - name: Build apfs-fuse
         run: |
@@ -50,22 +47,26 @@ jobs:
         run: |
           curl -sSL "$IPSW_URL" -o ipsw.zip
           unzip -o -q ipsw.zip "$SYS_DMG"
-          ls -l "$SYS_DMG"
+          cp "$SYS_DMG" /tmp/sysos.dmg
+          ls -l /tmp/sysos.dmg
+          df -h /tmp
 
       - name: Extract dyld_shared_cache from the cryptex
         run: |
-          mkdir -p /tmp/sysos
-          ln -sf "$PWD/$SYS_DMG" /tmp/sysos.dmg
-          sudo apfs-fuse /tmp/sysos.dmg /tmp/sysos
-          dsc=/tmp/sysos/root/System/Library/Caches/com.apple.dyld
+          mkdir -p /tmp/apfsmnt
+          sudo apfs-fuse /tmp/sysos.dmg /tmp/apfsmnt || {
+            echo "apfs-fuse failed, listing what we have:"; ls -l /tmp; mount | grep -i fuse || true; exit 1; }
+          echo "--- mounted ---"
+          ls -l /tmp/apfsmnt | head
+          dsc=/tmp/apfsmnt/root/System/Library/Caches/com.apple.dyld
           echo "--- source ---"
           ls -l "$dsc" | head -8
-          mkdir -p /tmp/dsc
-          sudo cp "$dsc"/dyld_shared_cache_arm64* /tmp/dsc/ || true
-          sudo chown -R "$(id -u):$(id -g)" /tmp/dsc
+          mkdir -p "$PWD/dsc"
+          sudo cp "$dsc"/dyld_shared_cache_arm64* "$PWD/dsc"/ || true
+          sudo chown -R "$(id -u):$(id -g)" "$PWD/dsc"
           echo "--- copied ---"
-          ls -l /tmp/dsc | head -8
-          du -sh /tmp/dsc
+          ls -l "$PWD/dsc" | head -8
+          du -sh "$PWD/dsc"
 
       - name: ipsw tool
         run: |
@@ -75,7 +76,7 @@ jobs:
 
       - name: Symbolicate
         run: |
-          DSC=/tmp/dsc/dyld_shared_cache_arm64
+          DSC="$PWD/dsc/dyld_shared_cache_arm64"
           : > symbols.txt
           for a in ${{ inputs.addrs }}; do
             echo "=== $a ===" >> symbols.txt
