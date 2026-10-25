@@ -1339,7 +1339,7 @@ new file mode 100644
 index 0000000..39f97c4
 --- /dev/null
 +++ b/bsd/dev/nabu_rpmh_gpu.c
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,171 @@
 +/*
 + * NABU RPMh votes for the GPU: ARC level rails (cxlvl / gfxlvl) and the cnoc bus vote.
 + *
@@ -1470,8 +1470,14 @@ index 0000000..39f97c4
 +	 * only names its own icc nodes (bcm_cn0 ...), so the spelling cmd-db carries
 +	 * has to be measured, not guessed.
 +	 */
++	/* qcom,bcm-name in the nabu DTB is uppercase (SN0/CN0/...); the lowercase
++	 * spellings tried in the previous run all missed. */
 +	static const char *const bcm_candidates[] = {
-+		"cnoc", "bcm_cn0", "cn0", "bcm_sh0", "sh0", "bcm_sn0", "gemnoc", "grp3d",
++		"ACV", +		"ALC", +		"MC0", +		"SH0", +		"MM0", +		"MM1",
++		"SH2", +		"MM2", +		"SH3", +		"MM3", +		"SH4", +		"SH5",
++		"SN0", +		"CO0", +		"CE0", +		"SN1", +		"CO1", +		"IP0",
++		"CN0", +		"QUP0", +		"SN2", +		"SN3", +		"SN4", +		"SN5",
++		"SN8", +		"SN9", +		"SN11", +		"SN12", +		"SN14", +		"SN15",
 +	};
 +	printf("NABU RPMH: GPU probe -- cmd-db resolution (read only)\n");
 +	nabu_rpmh_probe_one(NABU_RPMH_RES_CXLVL);
