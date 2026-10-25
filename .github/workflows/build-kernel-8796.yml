@@ -88,7 +88,7 @@ jobs:
           # pipefail is essential: without it `tee` masks build.sh's exit code and
           # a failed compile still reports a green run with an empty out/ dir.
           set -o pipefail
-          bash build.sh 2>&1 | tee build.log
+          bash -x build.sh 2>&1 | tee build.log
           rc=$?
           echo "=== build.sh exit: $rc ==="
           if [ "$rc" -ne 0 ]; then
@@ -102,7 +102,7 @@ jobs:
         run: |
           log=$(find . -maxdepth 3 -name build.log | head -1)
           if [ -z "$log" ]; then echo '::error::build.log not found'; exit 0; fi
-          tail -25 "\" > errors.txt || true
+          tail -30 "$log" > errors.txt || true
           while IFS= read -r line; do echo "::error::$line"; done < errors.txt
 
       - name: Collect
