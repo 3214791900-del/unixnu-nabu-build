@@ -1,0 +1,93 @@
+# Disassemble a function out of the shared cache by unslid address.
+#
+# The renderer selection predicate is CA::OGL::Context::sw_renderer_p() at
+# 0x18825e5f0; reading its body says what CA actually tests instead of
+# guessing at environment variables.
+name: ca-disass
+
+on:
+  workflow_dispatch:
+    inputs:
+      addr:
+        description: Unslid address inside QuartzCore
+        default: "0x18825e5f0"
+      image:
+        description: Image name
+        default: "QuartzCore"
+
+permissions:
+  contents: read
+
+env:
+  IPSW_URL: https://updates.cdn-apple.com/2023SummerFCS/fullrestores/042-44385/366890C4-D9B5-4938-B399-C19FB58DBEE0/iPad_Pro_HFR_16.6.1_20G81_Restore.ipsw
+  SYS_DMG: 096-56782-083.dmg
+  IPSW_TOOL: ipsw_3.1.739_linux_x86_64.tar.gz
+
+jobs:
+  disass:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc || true
+          df -h /
+
+      - name: Deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cmake g++ libfuse3-dev fuse3 zlib1g-dev libbz2-dev libssl-dev pkg-config
+          sudo modprobe fuse || true
+
+      - name: Build apfs-fuse
+        run: |
+          git clone -q --depth 1 --recurse-submodules --shallow-submodules https://github.com/sgan81/apfs-fuse.git /tmp/apfs
+          cmake -S /tmp/apfs -B /tmp/apfs/build -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build /tmp/apfs/build -j4 >/dev/null
+          sudo cmake --install /tmp/apfs/build >/dev/null
+
+      - name: Fetch the SystemOS cryptex
+        run: |
+          curl -sSL "$IPSW_URL" -o ipsw.zip
+          unzip -o -q ipsw.zip "$SYS_DMG"
+          cp "$SYS_DMG" /tmp/sysos.dmg
+
+      - name: Extract the dyld shared cache
+        run: |
+          mkdir -p /tmp/apfsmnt
+          sudo apfs-fuse /tmp/sysos.dmg /tmp/apfsmnt
+          dsc=/tmp/apfsmnt/root/System/Library/Caches/com.apple.dyld
+          sudo mkdir -p "$PWD/dsc"
+          sudo bash -c "cp '$dsc'/dyld_shared_cache_arm64* '$PWD/dsc'/" || true
+          sudo chown -R "$(id -u):$(id -g)" "$PWD/dsc"
+          ls -l "$PWD/dsc" | head -6
+
+      - name: ipsw tool
+        run: |
+          curl -sSL "https://github.com/blacktop/ipsw/releases/download/v3.1.739/$IPSW_TOOL" -o ipsw.tgz
+          tar xzf ipsw.tgz
+          ./ipsw version || true
+          echo "=== disass help ==="
+          ./ipsw dyld disass --help 2>&1 | head -40 || true
+
+      - name: Disassemble
+        run: |
+          DSC="$PWD/dsc/dyld_shared_cache_arm64"
+          A="${{ inputs.addr }}"
+          I="${{ inputs.image }}"
+          : > disass.txt
+          # try the documented forms, keep whatever works
+          ./ipsw dyld disass "$DSC" --image "$I" --vaddr "$A" >> disass.txt 2>&1 || true
+          ./ipsw dyld disass "$DSC" --vaddr "$A" >> disass.txt 2>&1 || true
+          ./ipsw dyld a2s "$DSC" "$A" >> disass.txt 2>&1 || true
+          wc -l disass.txt
+          head -120 disass.txt
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: disass
+          path: disass.txt
+          if-no-files-found: warn
