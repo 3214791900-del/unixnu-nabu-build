@@ -102,7 +102,7 @@ jobs:
         run: |
           log=$(find . -maxdepth 3 -name build.log | head -1)
           if [ -z "$log" ]; then echo '::error::build.log not found'; exit 0; fi
-          grep -E 'error:|fatal error:' "$log" | grep -v 'patch' | grep -v 'Skipping' | head -12 > errors.txt || true
+          grep -A8 'linker command failed' "$log" > errors.txt || true
           while IFS= read -r line; do echo "::error::$line"; done < errors.txt
 
       - name: Collect
