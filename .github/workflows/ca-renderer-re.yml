@@ -86,7 +86,21 @@ jobs:
           grep -aiE 'SWContext|GLESContext|MetalContext|NullContext|new_context' qc.txt | head -80 >> re.txt || true
           echo "=== any *Context* ===" >> re.txt
           grep -ai 'Context' qc.txt | head -40 >> re.txt || true
-          cat re.txt
+          cat re.txt | head -40
+
+      - name: Keep the whole QuartzCore symbol table
+        run: |
+          # uploaded so the symbol list can be grepped locally without another
+          # 15-minute run for every question
+          cp qc.txt quartzcore-symbols.txt 2>/dev/null || true
+          wc -l quartzcore-symbols.txt || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quartzcore-symbols
+          path: quartzcore-symbols.txt
+          if-no-files-found: warn
 
       - uses: actions/upload-artifact@v4
         if: always()
