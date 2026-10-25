@@ -1336,7 +1336,7 @@ new file mode 100644
 index 0000000..39f97c4
 --- /dev/null
 +++ b/bsd/dev/nabu_rpmh_gpu.c
-@@ -0,0 +1,140 @@
+@@ -0,0 +1,149 @@
 +/*
 + * NABU RPMh votes for the GPU: ARC level rails (cxlvl / gfxlvl) and the cnoc bus vote.
 + *
@@ -1364,12 +1364,13 @@ index 0000000..39f97c4
 +#include <pexpert/pexpert.h>
 +
 +/* nabu_rpmh.c */
-+/* Provided by nabu_rpmh.c in the reference tree. declared weak so the GPU side
-+ * still links when that tree keeps it static; callers must null-check. */
++/* This tree's nabu_rpmh.c does not export these. weak_import is Mach-O's weak
++ * reference (a plain `weak` stays a normal undefined symbol to ld64), so the
++ * GPU side links without them; every call site null-checks first. */
 +int nabu_rpmh_lookup(const char *res, unsigned slave, uint32_t *address)
-+    __attribute__((weak));
++    __attribute__((weak_import));
 +int nabu_rpmh_send_raw(const char *res, unsigned slave, const uint32_t *offsets,
-+    const uint32_t *values, unsigned count);
++    const uint32_t *values, unsigned count) __attribute__((weak_import));
 +
 +#include "nabu_gpu.h"
 +
@@ -1415,6 +1416,10 @@ index 0000000..39f97c4
 +		    resource ? resource : "?", level);
 +		return ENOTSUP;
 +	}
++	/* The transport may be absent: never call through a NULL symbol. */
++	if (!nabu_rpmh_send_raw) {
++		return ENOTSUP;
++	}
 +	/* RPMH_REGULATOR_REG_VRM_VOLTAGE == 0x0 (qcom-rpmh-regulator.c:34) */
 +	static const uint32_t offsets[1] = {0x0};
 +	const uint32_t values[1] = {nabu_arc_payload(level)};
@@ -1428,6 +1433,10 @@ index 0000000..39f97c4
 +	if (!NABU_BCM_ENCODING_VERIFIED) {
 +		printf("NABU RPMH: bus vote m%u->s%u ib=%u KBps skipped (payload encoding unverified)\n",
 +		    master, slave, ib_kbps);
++		return ENOTSUP;
++	}
++	/* The transport may be absent: never call through a NULL symbol. */
++	if (!nabu_rpmh_send_raw) {
 +		return ENOTSUP;
 +	}
 +	/* The BCM resource name comes from the bus node ("cnoc" in the nabu DTB). */
