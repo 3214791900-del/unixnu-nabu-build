@@ -1173,7 +1173,7 @@ new file mode 100644
 index 0000000..e70d896
 --- /dev/null
 +++ b/bsd/dev/nabu_gpucc.c
-@@ -0,0 +1,160 @@
+@@ -0,0 +1,187 @@
 +/*
 + * NABU GPUCC clock gates and the GPU/GMU clock table (Adreno 640, SM8150-AC).
 + *
@@ -1183,10 +1183,12 @@ index 0000000..e70d896
 + *
 + * Register offsets are deliberately NOT written here. The CBCR offsets, halt bits
 + * and enable bits for gpucc-sm8150 come from the Linux clock driver
-+ * (drivers/clk/qcom/gpucc-sm8150.c); gpu/derive-gpucc-clocks.py will generate them
-+ * once that source is pinned (see gpu/GPU-PLAN-zh.md). Until then every entry
-+ * carries NABU_GPUCC_OFFSET_UNVERIFIED and nabu_gpucc_clock_enable() refuses to
-+ * program it, so a wrong address can never be written silently.
++ * (drivers/clk/qcom/gpucc-sm8150.c) and gcc-sm8150.c, both pinned, and are emitted
++ * by gpu/derive-gpucc-clocks.py and gpu/derive-gcc-clocks.py into the two generated
++ * headers included below. l3_vote is the one clock still unverified: its provider is
++ * cpucc, whose binding is a separate namespace. Any entry that has no pinned offset
++ * keeps NABU_*_UNVERIFIED and nabu_gpucc_clock_enable() refuses to program it, so a
++ * wrong address can never be written silently.
 + *
 + * SPDX-License-Identifier: MIT
 + */
@@ -1197,11 +1199,16 @@ index 0000000..e70d896
 +
 +#include "NabuGpuBoard.h"
 +#include "nabu_gpu.h"
-+#include "NabuGpuccClocks.h"   /* generated: CBCR gates */
++#include "NabuGpuccClocks.h"   /* generated: gpucc CBCR gates */
++#include "NabuGccClocks.h"    /* generated: gcc-side CBCR gates */
 +
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 +
 +#define NABU_GPUCC_OFFSET_UNVERIFIED 0xFFFFFFFFu
++/* Both generated headers must agree on the sentinel; make that explicit. */
++#if NABU_GCC_UNVERIFIED != NABU_GPUCC_OFFSET_UNVERIFIED
++#error "gpucc/gcc generated headers disagree on the unverified sentinel"
++#endif
 +
 +typedef struct nabu_gpucc_clock {
 +	const char *name;
@@ -1222,9 +1229,9 @@ index 0000000..e70d896
 +	{ "gpu_cc_ahb",   NABU_GMU_CLK_GPU_CC_AHB_ID,  "gpucc",
 +	  NABU_GPUCC_GPU_GPU_CC_AHB_CBCR, 0, 0, NABU_GPUCC_GPU_GPU_CC_AHB_MASK },
 +	{ "axi_clk",      NABU_GMU_CLK_AXI_CLK_ID,     "gcc",
-+	  NABU_GPUCC_OFFSET_UNVERIFIED, 0, 0, 0 },
++	  NABU_GCC_GMU_AXI_CLK_CBCR, 0, 0, NABU_GCC_GMU_AXI_CLK_MASK },
 +	{ "memnoc_clk",   NABU_GMU_CLK_MEMNOC_CLK_ID,  "gcc",
-+	  NABU_GPUCC_OFFSET_UNVERIFIED, 0, 0, 0 },
++	  NABU_GCC_GMU_MEMNOC_CLK_CBCR, 0, 0, NABU_GCC_GMU_MEMNOC_CLK_MASK },
 +	{ "gmu_clk",      NABU_GMU_CLK_GMU_CLK_ID,     "gpucc",
 +	  NABU_GPUCC_GPU_GMU_CLK_CBCR, 0, 0, NABU_GPUCC_GPU_GMU_CLK_MASK },
 +	{ "cxo_clk",      NABU_GMU_CLK_CXO_CLK_ID,     "gpucc",
@@ -1232,13 +1239,21 @@ index 0000000..e70d896
 +	{ "rbbmtimer_clk", NABU_GPU_CLK_RBBMTIMER_CLK_ID, "gpucc",
 +	  NABU_GPUCC_GPU_RBBMTIMER_CLK_CBCR, 0, 0, NABU_GPUCC_GPU_RBBMTIMER_CLK_MASK },
 +	{ "mem_clk",      NABU_GPU_CLK_MEM_CLK_ID,     "gcc",
-+	  NABU_GPUCC_OFFSET_UNVERIFIED, 0, 0, 0 },
++	  NABU_GCC_GPU_MEM_CLK_CBCR, 0, 0, NABU_GCC_GPU_MEM_CLK_MASK },
 +	{ "mem_iface_clk", NABU_GPU_CLK_MEM_IFACE_CLK_ID, "gcc",
-+	  NABU_GPUCC_OFFSET_UNVERIFIED, 0, 0, 0 },
++	  NABU_GCC_GPU_MEM_IFACE_CLK_CBCR, 0, 0, NABU_GCC_GPU_MEM_IFACE_CLK_MASK },
 +};
 +
 +static vm_offset_t nabu_gpucc_base;
++static vm_offset_t nabu_gcc_base;      /* the four bus gates live in gcc */
 +static unsigned int nabu_gpucc_enabled;
++
++/* Each entry names its provider, so the window is chosen from data, not index. */
++static vm_offset_t
++nabu_gpucc_clock_base(const nabu_gpucc_clock_t *clock)
++{
++	return (strcmp(clock->provider, "gcc") == 0) ? nabu_gcc_base : nabu_gpucc_base;
++}
 +
 +static unsigned int
 +nabu_gpucc_verified(nabu_gpucc_clock_t *clock)
@@ -1263,8 +1278,15 @@ index 0000000..e70d896
 +		printf("NABU GPUCC: cannot map clock controller at %#x\n", NABU_GPUCC_REG_BASE);
 +		return ENOMEM;
 +	}
-+	printf("NABU GPUCC: mapped %#x+%#x, %u clocks (%u with pinned offsets)\n",
-+	    NABU_GPUCC_REG_BASE, NABU_GPUCC_REG_SIZE, nabu_gpucc_total_count(),
++	nabu_gcc_base = ml_io_map(NABU_GCC_REG_BASE, NABU_GCC_REG_SIZE);
++	if (nabu_gcc_base == 0) {
++		/* Not fatal: the gpucc gates still work, the bus gates will refuse. */
++		printf("NABU GPUCC: cannot map gcc at %#x; bus clocks unavailable\n",
++		    NABU_GCC_REG_BASE);
++	}
++	printf("NABU GPUCC: mapped %#x+%#x and gcc %#x+%#x, %u clocks (%u pinned)\n",
++	    NABU_GPUCC_REG_BASE, NABU_GPUCC_REG_SIZE, NABU_GCC_REG_BASE,
++	    NABU_GCC_REG_SIZE, nabu_gpucc_total_count(),
 +	    nabu_gpucc_verified_count());
 +	return 0;
 +}
@@ -1295,9 +1317,14 @@ index 0000000..e70d896
 +			printf("NABU GPUCC: %s has no pinned CBCR offset; not programmed\n", name);
 +			return ENOTSUP;
 +		}
-+		unsigned int value = *(volatile unsigned int *)(nabu_gpucc_base + clock->cbcr_off);
++		vm_offset_t base = nabu_gpucc_clock_base(clock);
++		if (base == 0) {
++			printf("NABU GPUCC: %s lives in an unmapped window; not programmed\n", name);
++			return ENXIO;
++		}
++		unsigned int value = *(volatile unsigned int *)(base + clock->cbcr_off);
 +		value |= (clock->en_mask != 0) ? clock->en_mask : (1u << clock->enable_bit);
-+		*(volatile unsigned int *)(nabu_gpucc_base + clock->cbcr_off) = value;
++		*(volatile unsigned int *)(base + clock->cbcr_off) = value;
 +		/* Halt polling is deferred until the halt bit table is pinned too. */
 +		nabu_gpucc_enabled++;
 +		printf("NABU GPUCC: %s enabled (cbcr %#x)\n", name, clock->cbcr_off);
@@ -1511,3 +1538,36 @@ index 0000000..39f97c4
 + * nabu_gpu_probe_boot() no-ops unless boot-arg nabugpuprobe=1 is set. */
 +STARTUP(EARLY_BOOT, STARTUP_RANK_LAST, nabu_gpu_probe_boot);
 +#endif /* ARM64_BOARD_CONFIG_NABU */
+diff --git a/bsd/dev/NabuGccClocks.h b/bsd/dev/NabuGccClocks.h
+new file mode 100644
+index 0000000..c0ffee0
+--- /dev/null
++++ b/bsd/dev/NabuGccClocks.h
+@@ -0,0 +1,27 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef NABU_GCC_CLOCKS_H
++#define NABU_GCC_CLOCKS_H
++
++/* Generated by gpu/derive-gcc-clocks.py from
++ *   include/dt-bindings/clock/qcom,gcc-sm8150.h
++ *   drivers/clk/qcom/gcc-sm8150.c
++ *   gpu/nabu-gpu-board.json
++ * pinned at commit=21a7f44fd0765fcc5194130b28767786eba1d1e7
++ * The gcc window is the nabu DTB's /soc/qcom,gcc reg. Do not edit. */
++
++#define NABU_GCC_UNVERIFIED 0xFFFFFFFFu
++#define NABU_GCC_REG_BASE 0x00100000u
++#define NABU_GCC_REG_SIZE 0x001f0000u
++
++#define NABU_GCC_GPU_MEM_CLK_CBCR 0x71154u   /* gcc_ddrss_gpu_axi_clk, dt id 19, GCC_DDRSS_GPU_AXI_CLK */
++#define NABU_GCC_GPU_MEM_CLK_MASK 0x00000001u
++#define NABU_GCC_GPU_MEM_IFACE_CLK_CBCR 0x7100cu   /* gcc_gpu_memnoc_gfx_clk, dt id 40, GCC_GPU_MEMNOC_GFX_CLK */
++#define NABU_GCC_GPU_MEM_IFACE_CLK_MASK 0x00000001u
++#define NABU_GCC_GPU_L3_VOTE_CBCR NABU_GCC_UNVERIFIED   /* dt id 4: provider qcom,cpucc is not gcc */
++#define NABU_GCC_GPU_L3_VOTE_MASK 0u
++#define NABU_GCC_GMU_AXI_CLK_CBCR 0x71154u   /* gcc_ddrss_gpu_axi_clk, dt id 19, GCC_DDRSS_GPU_AXI_CLK */
++#define NABU_GCC_GMU_AXI_CLK_MASK 0x00000001u
++#define NABU_GCC_GMU_MEMNOC_CLK_CBCR 0x7100cu   /* gcc_gpu_memnoc_gfx_clk, dt id 40, GCC_GPU_MEMNOC_GFX_CLK */
++#define NABU_GCC_GMU_MEMNOC_CLK_MASK 0x00000001u
++
++#endif /* NABU_GCC_CLOCKS_H */
