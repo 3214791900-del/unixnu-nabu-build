@@ -1,0 +1,14 @@
+diff --git a/bsd/conf/files b/bsd/conf/files
+index 5be8414..ad4baaa 100644
+--- a/bsd/conf/files
++++ b/bsd/conf/files
+@@ -111,6 +111,9 @@ bsd/dev/nabu_touch.c			standard
+ bsd/dev/nabu_geni_spi.c			standard
+ bsd/dev/nabu_nt36523.c			standard
+ bsd/dev/nabu_rpmh.c			standard
++bsd/dev/nabu_rpmh_gpu.c			standard
++bsd/dev/nabu_gpucc.c			standard
++bsd/dev/nabu_gpu_power.c			standard
+ bsd/dev/nabu_spmi.c			standard
+ bsd/dev/nabu_usb.c			standard
+ bsd/dev/mem.c				standard
