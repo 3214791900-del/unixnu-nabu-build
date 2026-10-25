@@ -1,8 +1,26 @@
 diff --git a/bsd/dev/nabu_rpmh.c b/bsd/dev/nabu_rpmh.c
-index c331fab..f9fce69 100644
+index c331fab..a37a393 100644
 --- a/bsd/dev/nabu_rpmh.c
 +++ b/bsd/dev/nabu_rpmh.c
-@@ -159,7 +159,7 @@ rh_map(void)
+@@ -100,6 +100,12 @@ rh_range(uint32_t off, uint32_t size)
+ static int
+ rh_map(void)
+ {
++	/* Every lookup/send calls this; map once and stay quiet afterwards. */
++	static int rh_mapped;
++
++	if (rh_mapped) {
++		return 0;
++	}
+ 	if (!rh_rsc) {
+ 		rh_rsc = ml_io_map(RH_RSC_PA, 0x100);
+ 	}
+@@ -155,11 +161,12 @@ rh_map(void)
+ 		printf("NABU RPMH: unsupported/standalone cmd-db\n");
+ 		return EINVAL;
+ 	}
++	rh_mapped = 1;
+ 	return 0;
  }
  
  static int
@@ -11,7 +29,7 @@ index c331fab..f9fce69 100644
  {
  	uint32_t key[2] = {0, 0};
  	for (unsigned i = 0; i < 8 && res[i]; ++i) {
-@@ -186,9 +186,21 @@ rh_lookup(const char *res, uint32_t *address)
+@@ -186,9 +193,21 @@ rh_lookup(const char *res, uint32_t *address)
  				continue;
  			}
  			uint32_t addr = rh_read(rh_db, e + 16);
@@ -36,7 +54,7 @@ index c331fab..f9fce69 100644
  				return EINVAL;
  			}
  			*address = addr;
-@@ -205,6 +217,12 @@ rh_lookup(const char *res, uint32_t *address)
+@@ -205,6 +224,12 @@ rh_lookup(const char *res, uint32_t *address)
  	return 0;
  }
  
@@ -49,7 +67,7 @@ index c331fab..f9fce69 100644
  static bool
  rh_free(unsigned t)
  {
-@@ -218,9 +236,21 @@ rh_free(unsigned t)
+@@ -218,9 +243,21 @@ rh_free(unsigned t)
  	    !(rh_read(rh_tcs, RH_IRQ_STATUS) & (1u << t));
  }
  
@@ -72,7 +90,7 @@ index c331fab..f9fce69 100644
  	int chosen = -1;
  	for (unsigned t = 0; t < RH_ACTIVE_N; ++t) {
  		uint32_t b = t * RH_TCS_STRIDE;
-@@ -233,8 +263,9 @@ rh_send(uint32_t address, unsigned mv)
+@@ -233,8 +270,9 @@ rh_send(uint32_t address, unsigned mv)
  		}
  		for (unsigned c = 0; c < rh_ncpt; ++c) {
  			if ((enabled & (1u << c)) &&
@@ -84,7 +102,7 @@ index c331fab..f9fce69 100644
  				return EBUSY;
  			}
  		}
-@@ -266,11 +297,8 @@ rh_send(uint32_t address, unsigned mv)
+@@ -266,11 +304,8 @@ rh_send(uint32_t address, unsigned mv)
  	}
  	/* From here an uncertain write/timeout quarantines our slot for this boot. */
  	rh_poisoned = true;
@@ -98,7 +116,7 @@ index c331fab..f9fce69 100644
  		uint32_t cmd = b + c * RH_CMD_STRIDE;
  		if (!rh_sync(cmd + RH_MSGID, RH_WRITE_ACK) ||
  		    !rh_sync(cmd + RH_ADDR, address + offsets[c]) ||
-@@ -278,18 +306,18 @@ rh_send(uint32_t address, unsigned mv)
+@@ -278,18 +313,18 @@ rh_send(uint32_t address, unsigned mv)
  			return EIO;
  		}
  	}
@@ -120,7 +138,7 @@ index c331fab..f9fce69 100644
  			status[c] = rh_read(rh_tcs, b + RH_CMD_STATUS + c * RH_CMD_STRIDE);
  			complete &= status[c] != 0xffffffffu &&
  			    (status[c] & (RH_ISSUED | RH_COMPLETE)) == (RH_ISSUED | RH_COMPLETE);
-@@ -303,8 +331,9 @@ rh_send(uint32_t address, unsigned mv)
+@@ -303,8 +338,9 @@ rh_send(uint32_t address, unsigned mv)
  		}
  		delay(1);
  	}
@@ -132,7 +150,7 @@ index c331fab..f9fce69 100644
  	if (!done) {
  		printf("NABU RPMH: timeout; TCS quarantined, IRQ remains masked; no reset/retry\n");
  		return ETIMEDOUT;
-@@ -320,10 +349,73 @@ rh_send(uint32_t address, unsigned mv)
+@@ -320,10 +356,73 @@ rh_send(uint32_t address, unsigned mv)
  		return EIO;
  	}
  	rh_poisoned = false;
