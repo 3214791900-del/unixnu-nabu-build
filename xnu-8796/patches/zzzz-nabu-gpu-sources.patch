@@ -1366,6 +1366,7 @@ index 0000000..39f97c4
 +#include <machine/machine_routines.h>
 +#include <pexpert/pexpert.h>
 +#include <kern/startup.h>
++#include "NabuGpuBoard.h"   /* NABU_RPMH_RES_* live here */
 +
 +/* nabu_rpmh.c */
 +/* Defined by bsd/dev/nabu_rpmh.c (patch 0109); declared here for the GPU side. */
