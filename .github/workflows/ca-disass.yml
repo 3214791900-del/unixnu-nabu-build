@@ -72,18 +72,17 @@ jobs:
           echo "=== disass help ==="
           ./ipsw dyld disass --help 2>&1 | head -40 || true
 
-      - name: Disassemble
+      - name: Extract the Mach-O (disassembly on the runner OOMs on a 3.2 GB cache)
         run: |
           DSC="$PWD/dsc/dyld_shared_cache_arm64"
-          A="${{ inputs.addr }}"
           I="${{ inputs.image }}"
-          : > disass.txt
-          # try the documented forms, keep whatever works
-          ./ipsw dyld disass "$DSC" --image "$I" --vaddr "$A" >> disass.txt 2>&1 || true
-          ./ipsw dyld disass "$DSC" --vaddr "$A" >> disass.txt 2>&1 || true
-          ./ipsw dyld a2s "$DSC" "$A" >> disass.txt 2>&1 || true
-          wc -l disass.txt
-          head -120 disass.txt
+          mkdir -p qc
+          # try the documented extraction forms, keep whatever works
+          ./ipsw dyld macho "$DSC" --image "$I" --output qc >> extract.txt 2>&1 || true
+          ./ipsw dyld extract "$DSC" --image "$I" --output qc >> extract.txt 2>&1 || true
+          ls -lR qc | head -40 >> extract.txt 2>&1 || true
+          cat extract.txt | head -40
+          find qc -type f -size +1M | head -5
 
       - uses: actions/upload-artifact@v4
         if: always()
