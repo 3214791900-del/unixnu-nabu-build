@@ -77,9 +77,8 @@ jobs:
           DSC="$PWD/dsc/dyld_shared_cache_arm64"
           I="${{ inputs.image }}"
           mkdir -p qc
-          # try the documented extraction forms, keep whatever works
-          ./ipsw dyld macho "$DSC" --image "$I" --output qc >> extract.txt 2>&1 || true
-          ./ipsw dyld extract "$DSC" --image "$I" --output qc >> extract.txt 2>&1 || true
+          # ipsw dyld macho <DSC> <DYLIB> -x --output DIR  (the dylib is positional)
+          ./ipsw dyld macho "$DSC" "$I" -x --output qc >> extract.txt 2>&1 || true
           ls -lR qc | head -40 >> extract.txt 2>&1 || true
           cat extract.txt | head -40
           find qc -type f -size +1M | head -5
