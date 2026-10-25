@@ -102,7 +102,7 @@ jobs:
         run: |
           log=$(find . -maxdepth 3 -name build.log | head -1)
           if [ -z "$log" ]; then echo '::error::build.log not found'; exit 0; fi
-          { grep -E 'error:|Error [0-9]|Undefined symbol|FAILED|failed|fatal|No such file|cannot find' "$log" | head -30; echo '--- tail ---'; tail -25 "$log"; } > errors.txt || true
+          tail -25 "\" > errors.txt || true
           while IFS= read -r line; do echo "::error::$line"; done < errors.txt
 
       - name: Collect
