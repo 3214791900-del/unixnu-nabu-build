@@ -1,0 +1,209 @@
+diff --git a/bsd/dev/nabu_rpmh.c b/bsd/dev/nabu_rpmh.c
+index c331fab..f9fce69 100644
+--- a/bsd/dev/nabu_rpmh.c
++++ b/bsd/dev/nabu_rpmh.c
+@@ -159,7 +159,7 @@ rh_map(void)
+ }
+ 
+ static int
+-rh_lookup(const char *res, uint32_t *address)
++rh_lookup_slave(const char *res, unsigned want_slave, uint32_t *address)
+ {
+ 	uint32_t key[2] = {0, 0};
+ 	for (unsigned i = 0; i < 8 && res[i]; ++i) {
+@@ -186,9 +186,21 @@ rh_lookup(const char *res, uint32_t *address)
+ 				continue;
+ 			}
+ 			uint32_t addr = rh_read(rh_db, e + 16);
+-			if (slave != RH_VRM || (addr >> 16) != RH_VRM || (addr & 15u) ||
+-			    !rh_range(aux + rh_db16(e + 22), rh_db16(e + 20))) {
+-				printf("NABU RPMH: invalid VRM entry for %s\n", res);
++			/*
++			 * The cmd-db entry carries its slave id in address bits [19:16], so a
++			 * caller that does not care passes want_slave == 0: any slave is accepted
++			 * and the id is simply reported. VRM (PMIC5 LDO) entries additionally
++			 * require a zeroed low nibble; other slaves only need dword alignment.
++			 * The LDO path keeps asking for RH_VRM so it can never pick up another
++			 * resource class by accident.
++			 */
++			bool want_any = (want_slave == 0);
++			bool bad = (want_any ? (slave < 1 || slave > 5) : (slave != want_slave)) ||
++			    (addr >> 16) != slave ||
++			    !rh_range(aux + rh_db16(e + 22), rh_db16(e + 20)) ||
++			    ((slave == RH_VRM) ? ((addr & 15u) != 0) : ((addr & 3u) != 0));
++			if (bad) {
++				printf("NABU RPMH: invalid slave-%u entry for %s\n", slave, res);
+ 				return EINVAL;
+ 			}
+ 			*address = addr;
+@@ -205,6 +217,12 @@ rh_lookup(const char *res, uint32_t *address)
+ 	return 0;
+ }
+ 
++static int
++rh_lookup(const char *res, uint32_t *address)
++{
++	return rh_lookup_slave(res, RH_VRM, address);
++}
++
+ static bool
+ rh_free(unsigned t)
+ {
+@@ -218,9 +236,21 @@ rh_free(unsigned t)
+ 	    !(rh_read(rh_tcs, RH_IRQ_STATUS) & (1u << t));
+ }
+ 
++/*
++ * Generic ACTIVE-TCS transaction: `count` commands at {address+offsets[i]} carrying
++ * values[i]. The LDO path below is this function with the PMIC5 triple; ARC/BCM
++ * votes reuse it unchanged so the fragile parts (free-TCS selection, IRQ masking,
++ * completion polling, quarantine) exist exactly once.
++ */
+ static int
+-rh_send(uint32_t address, unsigned mv)
++rh_send_cmds(uint32_t address, const uint32_t *offsets, const uint32_t *values,
++    unsigned count)
+ {
++	if (count == 0 || count > 8) {
++		printf("NABU RPMH: %u commands is outside the supported 1..8\n", count);
++		return EINVAL;
++	}
++	const uint32_t mask = (1u << count) - 1u;
+ 	int chosen = -1;
+ 	for (unsigned t = 0; t < RH_ACTIVE_N; ++t) {
+ 		uint32_t b = t * RH_TCS_STRIDE;
+@@ -233,8 +263,9 @@ rh_send(uint32_t address, unsigned mv)
+ 		}
+ 		for (unsigned c = 0; c < rh_ncpt; ++c) {
+ 			if ((enabled & (1u << c)) &&
+-			    (rh_read(rh_tcs, b + RH_ADDR + c * RH_CMD_STRIDE) & ~15u) == address) {
+-				printf("NABU RPMH: conflicting inherited L11C request in TCS%u\n", t);
++			    ((rh_read(rh_tcs, b + RH_ADDR + c * RH_CMD_STRIDE) & ~3u) ==
++			    (address & ~3u))) {
++				printf("NABU RPMH: conflicting inherited request in TCS%u\n", t);
+ 				return EBUSY;
+ 			}
+ 		}
+@@ -266,11 +297,8 @@ rh_send(uint32_t address, unsigned mv)
+ 	}
+ 	/* From here an uncertain write/timeout quarantines our slot for this boot. */
+ 	rh_poisoned = true;
+-	/* HPM (raw 7) is supported by this PMIC5 LDO; enable comes last. */
+-	const uint32_t offsets[3] = {0, 8, 4};
+-	const uint32_t values[3] = {mv, 7, 1};
+-	printf("NABU RPMH: TCS%u ACTIVE %u mV mode=7 enable=1 irq-enable=%#x\n", t, mv, irq_en);
+-	for (unsigned c = 0; c < 3; ++c) {
++	printf("NABU RPMH: TCS%u ACTIVE %u command(s) irq-enable=%#x\n", t, count, irq_en);
++	for (unsigned c = 0; c < count; ++c) {
+ 		uint32_t cmd = b + c * RH_CMD_STRIDE;
+ 		if (!rh_sync(cmd + RH_MSGID, RH_WRITE_ACK) ||
+ 		    !rh_sync(cmd + RH_ADDR, address + offsets[c]) ||
+@@ -278,18 +306,18 @@ rh_send(uint32_t address, unsigned mv)
+ 			return EIO;
+ 		}
+ 	}
+-	if (!rh_sync(b + RH_WAIT, 7) || !rh_sync(b + RH_ENABLE, 7) ||
++	if (!rh_sync(b + RH_WAIT, mask) || !rh_sync(b + RH_ENABLE, mask) ||
+ 	    !rh_sync(b + RH_CONTROL, 0) || !rh_sync(b + RH_CONTROL, RH_AMC_EN)) {
+ 		return EIO;
+ 	}
+ 	rh_write(rh_tcs, b + RH_CONTROL, RH_AMC_EN | RH_TRIGGER);
+-	uint32_t irq = 0, idle = 0, status[3] = {0, 0, 0};
++	uint32_t irq = 0, idle = 0, status[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+ 	bool done = false, progress = false;
+ 	for (unsigned us = 0; us < RH_TIMEOUT_US; ++us) {
+ 		irq = rh_read(rh_tcs, RH_IRQ_STATUS);
+ 		idle = rh_read(rh_tcs, b + RH_STATUS);
+ 		bool complete = true;
+-		for (unsigned c = 0; c < 3; ++c) {
++		for (unsigned c = 0; c < count; ++c) {
+ 			status[c] = rh_read(rh_tcs, b + RH_CMD_STATUS + c * RH_CMD_STRIDE);
+ 			complete &= status[c] != 0xffffffffu &&
+ 			    (status[c] & (RH_ISSUED | RH_COMPLETE)) == (RH_ISSUED | RH_COMPLETE);
+@@ -303,8 +331,9 @@ rh_send(uint32_t address, unsigned mv)
+ 		}
+ 		delay(1);
+ 	}
+-	printf("NABU RPMH: TCS%u done=%d irq=%#x idle=%#x control=%#x cmd-status=%#x/%#x/%#x\n",
+-	    t, done, irq, idle, rh_read(rh_tcs, b + RH_CONTROL), status[0], status[1], status[2]);
++	printf("NABU RPMH: TCS%u done=%d irq=%#x idle=%#x control=%#x cmd0-status=%#x cmd%u-status=%#x\n",
++	    t, done, irq, idle, rh_read(rh_tcs, b + RH_CONTROL), status[0], count - 1,
++	    status[count - 1]);
+ 	if (!done) {
+ 		printf("NABU RPMH: timeout; TCS quarantined, IRQ remains masked; no reset/retry\n");
+ 		return ETIMEDOUT;
+@@ -320,10 +349,73 @@ rh_send(uint32_t address, unsigned mv)
+ 		return EIO;
+ 	}
+ 	rh_poisoned = false;
+-	printf("NABU RPMH: L11C ACTIVE vote complete (rail voltage requires hardware verification)\n");
++	printf("NABU RPMH: ACTIVE transaction complete (%u command(s))\n", count);
+ 	return 0;
+ }
+ 
++/* PMIC5 LDO triple: voltage selector at +0, mode raw 7 at +8, enable at +4. */
++static int
++rh_send(uint32_t address, unsigned mv)
++{
++	static const uint32_t offsets[3] = {0, 8, 4};
++	const uint32_t values[3] = {mv, 7, 1};
++	int error = rh_send_cmds(address, offsets, values, 3);
++	if (!error) {
++		printf("NABU RPMH: L11C ACTIVE vote complete (rail voltage requires hardware verification)\n");
++	}
++	return error;
++}
++
++/*
++ * Exported for the GPU bring-up (nabu_rpmh_gpu.c): ARC level votes and the cnoc
++ * bus vote travel on this same RSC/TCS/cmd-db transport but with their own slave
++ * ids and payloads, which the LDO entry point above must never be asked to carry.
++ */
++int
++nabu_rpmh_lookup(const char *res, unsigned slave, uint32_t *address)
++{
++	/* slave 0 means "accept any slave id and report it" (see rh_lookup_slave). */
++	if (!res || !address || slave > 5) {
++		return EINVAL;
++	}
++	int error = rh_map();
++	if (error) {
++		return error;
++	}
++	return rh_lookup_slave(res, slave, address);
++}
++
++int
++nabu_rpmh_send_raw(const char *res, unsigned slave, const uint32_t *offsets,
++    const uint32_t *values, unsigned count)
++{
++	if (!res || !offsets || !values) {
++		return EINVAL;
++	}
++	if (__atomic_exchange_n(&rh_lock, 1, __ATOMIC_ACQUIRE)) {
++		return EBUSY;
++	}
++	int error = EIO;
++	uint32_t address = 0;
++	if (rh_poisoned) {
++		printf("NABU RPMH: previous uncertain transaction; refusing further access\n");
++		goto out;
++	}
++	error = rh_map();
++	if (!error) {
++		error = rh_lookup_slave(res, slave, &address);
++	}
++	if (!error) {
++		error = rh_send_cmds(address, offsets, values, count);
++	}
++out:
++	if (error) {
++		printf("NABU RPMH: %s slave-%u transaction failed errno=%d\n", res, slave, error);
++	}
++	__atomic_store_n(&rh_lock, 0, __ATOMIC_RELEASE);
++	return error;
++}
++
+ int
+ nabu_rpmh_vreg_enable(const char *res, unsigned mv)
+ {
