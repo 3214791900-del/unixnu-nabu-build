@@ -1173,7 +1173,7 @@ new file mode 100644
 index 0000000..e70d896
 --- /dev/null
 +++ b/bsd/dev/nabu_gpucc.c
-@@ -0,0 +1,187 @@
+@@ -0,0 +1,194 @@
 +/*
 + * NABU GPUCC clock gates and the GPU/GMU clock table (Adreno 640, SM8150-AC).
 + *
@@ -1252,7 +1252,18 @@ index 0000000..e70d896
 +static vm_offset_t
 +nabu_gpucc_clock_base(const nabu_gpucc_clock_t *clock)
 +{
-+	return (strcmp(clock->provider, "gcc") == 0) ? nabu_gcc_base : nabu_gpucc_base;
++	if (strcmp(clock->provider, "gcc") != 0) {
++		return nabu_gpucc_base;
++	}
++	if (nabu_gcc_base == 0) {
++		/* 2 MiB of gcc registers. Mapped on demand only: the read-only probe does
++		 * not need it, and the build that mapped it eagerly (v9) never reached the
++		 * console, so keep this off the early-boot path until a gate is gated. */
++		printf("NABU GPUCC: mapping gcc %#x+%#x\n", NABU_GCC_REG_BASE,
++		    NABU_GCC_REG_SIZE);
++		nabu_gcc_base = ml_io_map(NABU_GCC_REG_BASE, NABU_GCC_REG_SIZE);
++	}
++	return nabu_gcc_base;
 +}
 +
 +static unsigned int
@@ -1270,6 +1281,7 @@ index 0000000..e70d896
 +int
 +nabu_gpucc_init(void)
 +{
++	printf("NABU GPUCC: init (%u clocks)\n", nabu_gpucc_total_count());
 +	if (nabu_gpucc_base != 0) {
 +		return 0;
 +	}
@@ -1278,12 +1290,7 @@ index 0000000..e70d896
 +		printf("NABU GPUCC: cannot map clock controller at %#x\n", NABU_GPUCC_REG_BASE);
 +		return ENOMEM;
 +	}
-+	nabu_gcc_base = ml_io_map(NABU_GCC_REG_BASE, NABU_GCC_REG_SIZE);
-+	if (nabu_gcc_base == 0) {
-+		/* Not fatal: the gpucc gates still work, the bus gates will refuse. */
-+		printf("NABU GPUCC: cannot map gcc at %#x; bus clocks unavailable\n",
-+		    NABU_GCC_REG_BASE);
-+	}
++/* The gcc window is mapped on demand: see nabu_gpucc_clock_base(). */
 +	printf("NABU GPUCC: mapped %#x+%#x and gcc %#x+%#x, %u clocks (%u pinned)\n",
 +	    NABU_GPUCC_REG_BASE, NABU_GPUCC_REG_SIZE, NABU_GCC_REG_BASE,
 +	    NABU_GCC_REG_SIZE, nabu_gpucc_total_count(),
