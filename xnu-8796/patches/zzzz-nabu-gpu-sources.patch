@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..e3115dd
 --- /dev/null
 +++ b/bsd/dev/NabuGpuBoard.h
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,76 @@
 +/* SPDX-License-Identifier: MIT */
 +#ifndef NABU_GPU_BOARD_H
 +#define NABU_GPU_BOARD_H
@@ -53,8 +53,11 @@ index 0000000..e3115dd
 +#define NABU_RPMH_RSC_BASE  0x18220000u
 +#define NABU_RPMH_TCS_BASE  0x18220d00u
 +#define NABU_RPMH_CMD_DB    0x0c3f000cu
-+#define NABU_RPMH_RES_CXLVL      "cxlvl"   /* gpu_cx_gdsc -> pm8150l_s6_level */
-+#define NABU_RPMH_RES_GFXLVL     "gfxlvl"   /* gpu_gx_gdsc -> pm8150l_s2_level */
++/* cmd-db is keyed by the resource name, and the nabu DT spells these the Linux
++ * way (qcom,resource-name under rpmh-regulator-cxlvl / -gfxlvl). The first probe
++ * run used "cxlvl"/"gfxlvl" and got ENODEV for all three lookups. */
++#define NABU_RPMH_RES_CXLVL      "cx.lvl"   /* gpu_cx_gdsc -> pm8150l_s6_level */
++#define NABU_RPMH_RES_GFXLVL     "gfx.lvl"  /* gpu_gx_gdsc -> pm8150l_s2_level */
 +
 +/* --- GMU bus vote --- */
 +#define NABU_BUS_MASTER      26u
@@ -1336,7 +1339,7 @@ new file mode 100644
 index 0000000..39f97c4
 --- /dev/null
 +++ b/bsd/dev/nabu_rpmh_gpu.c
-@@ -0,0 +1,144 @@
+@@ -0,0 +1,164 @@
 +/*
 + * NABU RPMh votes for the GPU: ARC level rails (cxlvl / gfxlvl) and the cnoc bus vote.
 + *
@@ -1440,21 +1443,41 @@ index 0000000..39f97c4
 + * Read-only discovery: resolve the three resources and report address plus the
 + * slave id the cmd-db carries. No TCS is touched here.
 + */
++/*
++ * One lookup, one line. Slave 0 means "whichever slave the cmd-db reports"; the
++ * answer is printed as slave=(address>>16)&0xf, which is where the id lives.
++ */
++static void
++nabu_rpmh_probe_one(const char *res)
++{
++	uint32_t address = 0;
++	int error = nabu_rpmh_lookup(res, 0, &address);
++
++	if (error) {
++		printf("NABU RPMH:   %-12s unresolved (errno %d)\n", res, error);
++	} else {
++		printf("NABU RPMH:   %-12s address=%#x slave=%u\n", res, address,
++		    (address >> 16) & 0xfu);
++	}
++}
++
 +void
 +nabu_rpmh_gpu_probe(void)
 +{
-+	static const char *const resources[] = { "cxlvl", "gfxlvl", "cnoc" };
++	/*
++	 * ARC rails are named by the DT. The BCM/bus resource is not: the ad-hoc bus
++	 * only names its own icc nodes (bcm_cn0 ...), so the spelling cmd-db carries
++	 * has to be measured, not guessed.
++	 */
++	static const char *const bcm_candidates[] = {
++		"cnoc", "bcm_cn0", "cn0", "bcm_sh0", "sh0", "bcm_sn0", "gemnoc", "grp3d",
++	};
 +	printf("NABU RPMH: GPU probe -- cmd-db resolution (read only)\n");
-+	for (unsigned r = 0; r < sizeof(resources) / sizeof(resources[0]); ++r) {
-+		uint32_t address = 0;
-+		int error = nabu_rpmh_lookup ?
-+	    nabu_rpmh_lookup(resources[r], 0, &address) : ENOTSUP;
-+		if (error) {
-+			printf("NABU RPMH:   %-7s unresolved (errno %d)\n", resources[r], error);
-+		} else {
-+			printf("NABU RPMH:   %-7s address=%#x slave=%u\n", resources[r], address,
-+			    (address >> 16) & 0xfu);
-+		}
++	nabu_rpmh_probe_one(NABU_RPMH_RES_CXLVL);
++	nabu_rpmh_probe_one(NABU_RPMH_RES_GFXLVL);
++	printf("NABU RPMH:   -- BCM/bus candidates --\n");
++	for (unsigned r = 0; r < sizeof(bcm_candidates) / sizeof(bcm_candidates[0]); ++r) {
++		nabu_rpmh_probe_one(bcm_candidates[r]);
 +	}
 +}
 +
