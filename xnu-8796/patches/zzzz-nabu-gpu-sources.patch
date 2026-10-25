@@ -1336,7 +1336,7 @@ new file mode 100644
 index 0000000..39f97c4
 --- /dev/null
 +++ b/bsd/dev/nabu_rpmh_gpu.c
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,144 @@
 +/*
 + * NABU RPMh votes for the GPU: ARC level rails (cxlvl / gfxlvl) and the cnoc bus vote.
 + *
@@ -1362,38 +1362,13 @@ index 0000000..39f97c4
 +#include <sys/errno.h>
 +#include <machine/machine_routines.h>
 +#include <pexpert/pexpert.h>
++#include <kern/startup.h>
 +
 +/* nabu_rpmh.c */
-+/* Not exported by this tree's nabu_rpmh.c. The kernel links -Wl,-static, where
-+ * neither `weak` nor `weak_import` can leave a reference unresolved, so these are
-+ * real definitions: ENOTSUP stubs. A strong implementation added to nabu_rpmh.c
-+ * later supersedes them -- delete these when that lands. */
++/* Defined by bsd/dev/nabu_rpmh.c (patch 0109); declared here for the GPU side. */
 +int nabu_rpmh_lookup(const char *res, unsigned slave, uint32_t *address);
 +int nabu_rpmh_send_raw(const char *res, unsigned slave, const uint32_t *offsets,
 +    const uint32_t *values, unsigned count);
-+
-+int
-+nabu_rpmh_lookup(const char *res, unsigned slave, uint32_t *address)
-+{
-+	(void)res;
-+	(void)slave;
-+	if (address != NULL) {
-+		*address = 0;
-+	}
-+	return ENOTSUP;
-+}
-+
-+int
-+nabu_rpmh_send_raw(const char *res, unsigned slave, const uint32_t *offsets,
-+    const uint32_t *values, unsigned count)
-+{
-+	(void)res;
-+	(void)slave;
-+	(void)offsets;
-+	(void)values;
-+	(void)count;
-+	return ENOTSUP;
-+}
 +
 +#include "nabu_gpu.h"
 +
@@ -1500,4 +1475,9 @@ index 0000000..39f97c4
 +	nabu_gpu_power_probe();
 +	nabu_gpucc_report();
 +}
++
++/* nabu_ufs.c used to call this, but that file is entangled with patches 0107/0108
++ * that never apply. Registering here keeps the GPU patch set self-contained;
++ * nabu_gpu_probe_boot() no-ops unless boot-arg nabugpuprobe=1 is set. */
++STARTUP(EARLY_BOOT, STARTUP_RANK_LAST, nabu_gpu_probe_boot);
 +#endif /* ARM64_BOARD_CONFIG_NABU */
