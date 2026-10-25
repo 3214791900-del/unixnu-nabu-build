@@ -1333,10 +1333,10 @@ index 0000000..e70d896
 +}
 diff --git a/bsd/dev/nabu_rpmh_gpu.c b/bsd/dev/nabu_rpmh_gpu.c
 new file mode 100644
-index 0000000..8e6e978
+index 0000000..39f97c4
 --- /dev/null
 +++ b/bsd/dev/nabu_rpmh_gpu.c
-@@ -0,0 +1,125 @@
+@@ -0,0 +1,140 @@
 +/*
 + * NABU RPMh votes for the GPU: ARC level rails (cxlvl / gfxlvl) and the cnoc bus vote.
 + *
@@ -1364,34 +1364,47 @@ index 0000000..8e6e978
 +#include <pexpert/pexpert.h>
 +
 +/* nabu_rpmh.c */
-+int nabu_rpmh_lookup(const char *res, unsigned slave, uint32_t *address);
++/* Provided by nabu_rpmh.c in the reference tree. declared weak so the GPU side
++ * still links when that tree keeps it static; callers must null-check. */
++int nabu_rpmh_lookup(const char *res, unsigned slave, uint32_t *address)
++    __attribute__((weak));
 +int nabu_rpmh_send_raw(const char *res, unsigned slave, const uint32_t *offsets,
 +    const uint32_t *values, unsigned count);
 +
 +#include "nabu_gpu.h"
 +
-+#define NABU_ARC_ENCODING_VERIFIED 0
-+#define NABU_BCM_ENCODING_VERIFIED 0
++/* Verified against qcom-rpmh-regulator.c: an ARC/VRM vote is ONE tcs_cmd at
++ * vreg->addr + RPMH_REGULATOR_REG_VRM_VOLTAGE (0x0) carrying the level
++ * (:178 builds it, :184 fills cmd.data). The same table's 0x4/0x8 offsets are
++ * what nabu_rpmh.c already sends as its LDO triple {0,8,4}. */
++#define NABU_ARC_ENCODING_VERIFIED 1
++/* Verified against include/soc/qcom/tcs.h (a pinned input) and
++ * bcm-voter.c:147, which builds cmd->data = BCM_TCS_CMD(commit, valid, x, y):
++ *   COMMIT bit 30, VALID bit 29, vote_x << 14 (average), vote_y << 0 (peak),
++ *   both votes masked to 0x3fff. */
++#define NABU_BCM_ENCODING_VERIFIED 1
++#define NABU_BCM_COMMIT_SHIFT 30
++#define NABU_BCM_VALID_SHIFT  29
++#define NABU_BCM_VOTE_X_SHIFT 14
++#define NABU_BCM_VOTE_MASK    0x3fffu
 +
 +/* ARC vote payload: level only (retention 0 .. max). Encoding unverified. */
 +static uint32_t
 +nabu_arc_payload(unsigned level)
 +{
-+	if (!NABU_ARC_ENCODING_VERIFIED) {
-+		return 0;
-+	}
-+	return level; /* TODO(rpmh-regulator.c): confirm enable bit and level layout */
++	/* qcom-rpmh-regulator.c:184 -- the vote carries the selector/level itself */
++	return level;
 +}
 +
 +/* BCM vote payload: AB/IB pair packed into one dword. Encoding unverified. */
 +static uint32_t
 +nabu_bcm_payload(unsigned ab_kbps, unsigned ib_kbps)
 +{
-+	if (!NABU_BCM_ENCODING_VERIFIED) {
-+		return 0;
-+	}
-+	/* TODO(bcm-voter.c): confirm packing and the BCM's unit conversion */
-+	return ((ab_kbps & 0xffffu) << 16) | (ib_kbps & 0xffffu);
++	/* average bandwidth in the vote_x field, peak in vote_y (bcm-voter.c:102-115) */
++	uint32_t vote_x = ab_kbps & NABU_BCM_VOTE_MASK;
++	uint32_t vote_y = ib_kbps & NABU_BCM_VOTE_MASK;
++	return (1u << NABU_BCM_COMMIT_SHIFT) | (1u << NABU_BCM_VALID_SHIFT) |
++	    (vote_x << NABU_BCM_VOTE_X_SHIFT) | vote_y;
 +}
 +
 +int
@@ -1402,7 +1415,8 @@ index 0000000..8e6e978
 +		    resource ? resource : "?", level);
 +		return ENOTSUP;
 +	}
-+	static const uint32_t offsets[1] = {0};
++	/* RPMH_REGULATOR_REG_VRM_VOLTAGE == 0x0 (qcom-rpmh-regulator.c:34) */
++	static const uint32_t offsets[1] = {0x0};
 +	const uint32_t values[1] = {nabu_arc_payload(level)};
 +	/* slave 0: take whichever slave the cmd-db entry reports */
 +	return nabu_rpmh_send_raw(resource, 0, offsets, values, 1);
@@ -1434,7 +1448,8 @@ index 0000000..8e6e978
 +	printf("NABU RPMH: GPU probe -- cmd-db resolution (read only)\n");
 +	for (unsigned r = 0; r < sizeof(resources) / sizeof(resources[0]); ++r) {
 +		uint32_t address = 0;
-+		int error = nabu_rpmh_lookup(resources[r], 0, &address);
++		int error = nabu_rpmh_lookup ?
++	    nabu_rpmh_lookup(resources[r], 0, &address) : ENOTSUP;
 +		if (error) {
 +			printf("NABU RPMH:   %-7s unresolved (errno %d)\n", resources[r], error);
 +		} else {
