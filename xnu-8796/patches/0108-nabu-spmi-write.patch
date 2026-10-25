@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/nabu_spmi.c b/bsd/dev/nabu_spmi.c
-index 820ec8c..be2beff 100644
+index 820ec8c..f2cce55 100644
 --- a/bsd/dev/nabu_spmi.c
 +++ b/bsd/dev/nabu_spmi.c
 @@ -9,6 +9,7 @@
@@ -21,7 +21,7 @@ index 820ec8c..be2beff 100644
  		return -1;
  	}
  	IOLockLock(sp_lock);
-@@ -123,4 +126,164 @@ nabu_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
+@@ -123,4 +126,165 @@ nabu_spmi_read(unsigned sid, unsigned addr, uint8_t *out)
  	IOLockUnlock(sp_lock);
  	return -1;
  }
@@ -128,9 +128,10 @@ index 820ec8c..be2beff 100644
 +void
 +nabu_spmi_regdump(void)
 +{
++	/* Real peripheral numbers from the APID table dump on this device. */
 +	static const unsigned peripherals[] = {
-+		0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47,
-+		0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f,
++		0x50, 0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x59,
++		0x5a, 0x66, 0x67, 0x71, 0x72,
 +	};
 +	uint8_t v;
 +
