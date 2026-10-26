@@ -748,7 +748,7 @@ new file mode 100644
 index 0000000..17c09b9
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -0,0 +1,355 @@
+@@ -0,0 +1,393 @@
 +/*
 + * NABU GPU power sequence: GPUCC clocks -> RPMh ARC rails -> GDSC -> GMU handoff.
 + *
@@ -804,10 +804,43 @@ index 0000000..17c09b9
 +	{ "gpu_gx", NABU_GPU_GX_GDSC_BASE, NABU_RPMH_RES_GFXLVL },
 +};
 +
++/*
++ * Both GDSCRs live inside the GPUCC block (0x106c and 0x100c from its base), so
++ * one cached mapping covers them. Re-mapping on every access was introduced by
++ * accident in v16 and is the main suspect for the freeze that run: v15 touched
++ * the register a handful of times, v16 added a 100-iteration poll on top.
++ */
++static volatile unsigned int *nabu_gpu_cc_regs;
++
++static volatile unsigned int *
++nabu_gpu_cc_map(void)
++{
++	if (nabu_gpu_cc_regs == 0) {
++		nabu_gpu_cc_regs = (volatile unsigned int *)ml_io_map(NABU_GPUCC_REG_BASE,
++		    NABU_GPUCC_REG_SIZE);
++	}
++	return nabu_gpu_cc_regs;
++}
++
 +static int
 +nabu_gpu_gdsc_read(unsigned int base)
 +{
-+	return *(volatile unsigned int *)ml_io_map(base, NABU_GPU_CX_GDSC_REG_SIZE);
++	volatile unsigned int *regs = nabu_gpu_cc_map();
++
++	if (regs == 0) {
++		return 0xffffffffu;
++	}
++	return (int)regs[(base - NABU_GPUCC_REG_BASE) / 4];
++}
++
++static void
++nabu_gpu_gdsc_write(unsigned int base, unsigned int value)
++{
++	volatile unsigned int *regs = nabu_gpu_cc_map();
++
++	if (regs != 0) {
++		regs[(base - NABU_GPUCC_REG_BASE) / 4] = value;
++	}
 +}
 +
 +/*
@@ -852,17 +885,22 @@ index 0000000..17c09b9
 +	}
 +	unsigned int gdscr = nabu_gpu_gdsc_read(rail->gdsc_base);
 +	printf("NABU GPU: %s enable: before=%#x\n", rail->name, gdscr);
++	/* No-op store: same value back. If the machine dies here, writing this register
++	 * is the problem and not the power sequencing. */
++	nabu_gpu_gdsc_write(rail->gdsc_base, gdscr);
++	printf("NABU GPU: %s enable: noop store ok, reads %#x\n", rail->name,
++	    nabu_gpu_gdsc_read(rail->gdsc_base));
 +	gdscr &= ~NABU_GDSCR_SW_COLLAPSE;
 +	printf("NABU GPU: %s enable: store gdscr(%#x)=%#x\n", rail->name, rail->gdsc_base, gdscr);
-+	*(volatile unsigned int *)ml_io_map(rail->gdsc_base, NABU_GPU_CX_GDSC_REG_SIZE) = gdscr;
-+	for (unsigned int round = 0; round < 100; round++) {
++	nabu_gpu_gdsc_write(rail->gdsc_base, gdscr);
++	for (unsigned int round = 0; round < 50; round++) {
 +		unsigned int now = nabu_gpu_gdsc_read(rail->gdsc_base);
 +		if (now & NABU_GDSCR_PWR_ON) {
 +			printf("NABU GPU: %s enable: PWR_ON after %u polls, gdscr=%#x\n",
 +			    rail->name, round, now);
 +			return NABU_GPU_OK;
 +		}
-+		for (volatile unsigned int spin = 0; spin < 20000; spin++) {
++		for (volatile unsigned int spin = 0; spin < 5000; spin++) {
 +			;
 +		}
 +	}
@@ -1053,7 +1091,7 @@ index 0000000..17c09b9
 +		if (nabu_gpu_gdsc_read(base) & NABU_GDSCR_PWR_ON) {
 +			return 1;
 +		}
-+		for (volatile unsigned int spin = 0; spin < 20000; spin++) {
++		for (volatile unsigned int spin = 0; spin < 5000; spin++) {
 +			;
 +		}
 +	}
