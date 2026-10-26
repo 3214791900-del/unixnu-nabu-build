@@ -748,7 +748,7 @@ new file mode 100644
 index 0000000..17c09b9
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -0,0 +1,334 @@
+@@ -0,0 +1,355 @@
 +/*
 + * NABU GPU power sequence: GPUCC clocks -> RPMh ARC rails -> GDSC -> GMU handoff.
 + *
@@ -836,6 +836,12 @@ index 0000000..17c09b9
 +	nabu_rpmh_gpu_probe();
 +}
 +
++/*
++ * Bring one rail up. Every step is printed first: the GX attempt on 2026-10-26
++ * froze the machine right after this function was entered, and without a line
++ * between "entered" and "wrote" there is no way to tell a hung store from a
++ * later failure.
++ */
 +static int
 +nabu_gpu_gdsc_enable(nabu_gpu_rail_t *rail)
 +{
@@ -845,9 +851,24 @@ index 0000000..17c09b9
 +		return ENOTSUP;
 +	}
 +	unsigned int gdscr = nabu_gpu_gdsc_read(rail->gdsc_base);
++	printf("NABU GPU: %s enable: before=%#x\n", rail->name, gdscr);
 +	gdscr &= ~NABU_GDSCR_SW_COLLAPSE;
++	printf("NABU GPU: %s enable: store gdscr(%#x)=%#x\n", rail->name, rail->gdsc_base, gdscr);
 +	*(volatile unsigned int *)ml_io_map(rail->gdsc_base, NABU_GPU_CX_GDSC_REG_SIZE) = gdscr;
-+	return NABU_GPU_OK;
++	for (unsigned int round = 0; round < 100; round++) {
++		unsigned int now = nabu_gpu_gdsc_read(rail->gdsc_base);
++		if (now & NABU_GDSCR_PWR_ON) {
++			printf("NABU GPU: %s enable: PWR_ON after %u polls, gdscr=%#x\n",
++			    rail->name, round, now);
++			return NABU_GPU_OK;
++		}
++		for (volatile unsigned int spin = 0; spin < 20000; spin++) {
++			;
++		}
++	}
++	printf("NABU GPU: %s enable: PWR_ON never asserted, gdscr=%#x\n", rail->name,
++	    nabu_gpu_gdsc_read(rail->gdsc_base));
++	return ETIMEDOUT;
 +}
 +
 +/*
