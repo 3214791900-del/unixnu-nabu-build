@@ -333,7 +333,7 @@ new file mode 100644
 index 0000000..bbfec7d
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu.h
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,42 @@
 +/*
 + * NABU GPU bring-up: public interface between the clock/rail stages.
 + *
@@ -360,7 +360,9 @@ index 0000000..bbfec7d
 + * Both are gated by boot-arg so an ordinary boot writes nothing. */
 +#define NABU_GPU_STEP_CLOCKS 0x1u
 +#define NABU_GPU_STEP_ARC    0x2u
++#define NABU_GPU_STEP_CX_GDSC 0x4u   /* CX rail only; GX still untouched */
 +int nabu_gpu_steps(unsigned int steps);
++int nabu_gpu_stage_cx_gdsc(void);
 +void nabu_gpu_power_down(void);
 +
 +/* stage 6: load the GMU firmware and bring HFI up (needs power up first) */
@@ -745,7 +747,7 @@ new file mode 100644
 index 0000000..17c09b9
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -0,0 +1,245 @@
+@@ -0,0 +1,315 @@
 +/*
 + * NABU GPU power sequence: GPUCC clocks -> RPMh ARC rails -> GDSC -> GMU handoff.
 + *
@@ -988,8 +990,78 @@ index 0000000..17c09b9
 +			printf("NABU GPU: ARC vote %s -> %d\n", rails[i], error);
 +		}
 +	}
++	if (steps & NABU_GPU_STEP_CX_GDSC) {
++		printf("NABU GPU: CX GDSC experiment (the only rail-collapsing write so far)\n");
++		error = nabu_gpu_stage_cx_gdsc();
++		printf("NABU GPU: CX GDSC -> %d\n", error);
++	}
 +	printf("NABU GPU: steps done\n");
 +	return NABU_GPU_OK;
++}
++
++/*
++ * One write, one poll, no retries: returns 1 if PWR_ON asserted.
++ * The volatile spin is a poor man's delay; this runs before any timer is usable
++ * for waiting and the GDSC settles in microseconds on this SoC.
++ */
++static int
++nabu_gpu_gdsc_attempt(unsigned int base, unsigned int value)
++{
++	*(volatile unsigned int *)ml_io_map(base, NABU_GPU_CX_GDSC_REG_SIZE) = value;
++	for (unsigned int round = 0; round < 100; round++) {
++		if (nabu_gpu_gdsc_read(base) & NABU_GDSCR_PWR_ON) {
++			return 1;
++		}
++		for (volatile unsigned int spin = 0; spin < 20000; spin++) {
++			;
++		}
++	}
++	return 0;
++}
++
++/*
++ * First GDSC write on this port, CX rail only.
++ *
++ * SW_COLLAPSE = 1 means "request collapse", so powering up means clearing bit 0.
++ * That reading comes from Qualcomm's gdsc.c, not from this board -- the probe has
++ * only ever seen the rail in its off state (0x02222001), so both polarities are
++ * tried in one boot instead of guessing and needing another cycle. If neither
++ * asserts PWR_ON the original value is written back. GX is not touched.
++ */
++int
++nabu_gpu_stage_cx_gdsc(void)
++{
++	nabu_gpu_rail_t *rail = &nabu_gpu_rails[0];
++	unsigned int before = nabu_gpu_gdsc_read(rail->gdsc_base);
++
++	printf("NABU GPU: CX gdscr before = %#x (PWR_ON=%u SW_COLLAPSE=%u)\n", before,
++	    (before & NABU_GDSCR_PWR_ON) ? 1u : 0u,
++	    (before & NABU_GDSCR_SW_COLLAPSE) ? 1u : 0u);
++	if (before & NABU_GDSCR_PWR_ON) {
++		printf("NABU GPU: CX already powered; nothing to try\n");
++		return NABU_GPU_OK;
++	}
++
++	/* attempt 1: clear SW_COLLAPSE (gdsc.c semantics) */
++	if (nabu_gpu_gdsc_attempt(rail->gdsc_base, before & ~NABU_GDSCR_SW_COLLAPSE)) {
++		printf("NABU GPU: CX PWR_ON with SW_COLLAPSE cleared, gdscr = %#x  <== polarity CONFIRMED\n",
++		    nabu_gpu_gdsc_read(rail->gdsc_base));
++		return NABU_GPU_OK;
++	}
++	printf("NABU GPU: clearing SW_COLLAPSE did not assert PWR_ON, gdscr = %#x\n",
++	    nabu_gpu_gdsc_read(rail->gdsc_base));
++
++	/* attempt 2: the opposite polarity */
++	if (nabu_gpu_gdsc_attempt(rail->gdsc_base, before | NABU_GDSCR_SW_COLLAPSE)) {
++		printf("NABU GPU: CX PWR_ON with SW_COLLAPSE set, gdscr = %#x  <== polarity INVERTED\n",
++		    nabu_gpu_gdsc_read(rail->gdsc_base));
++		return NABU_GPU_OK;
++	}
++
++	printf("NABU GPU: neither polarity asserted PWR_ON; restoring %#x (now %#x)\n",
++	    before, nabu_gpu_gdsc_read(rail->gdsc_base));
++	*(volatile unsigned int *)ml_io_map(rail->gdsc_base, NABU_GPU_CX_GDSC_REG_SIZE) = before;
++	return ETIMEDOUT;
 +}
 diff --git a/bsd/dev/nabu_gpu_ring.c b/bsd/dev/nabu_gpu_ring.c
 new file mode 100644
@@ -1469,7 +1541,7 @@ new file mode 100644
 index 0000000..39f97c4
 --- /dev/null
 +++ b/bsd/dev/nabu_rpmh_gpu.c
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,187 @@
 +/*
 + * NABU RPMh votes for the GPU: ARC level rails (cxlvl / gfxlvl) and the cnoc bus vote.
 + *
@@ -1640,6 +1712,9 @@ index 0000000..39f97c4
 +		printf("NABU GPU: ===== staged write begin =====\n");
 +		if (enabled >= 3) {
 +			steps |= NABU_GPU_STEP_ARC;
++		}
++		if (enabled >= 4) {
++			steps |= NABU_GPU_STEP_CX_GDSC;
 +		}
 +		(void)nabu_gpu_steps(steps);
 +		printf("NABU GPU: ===== staged write end =====\n");
