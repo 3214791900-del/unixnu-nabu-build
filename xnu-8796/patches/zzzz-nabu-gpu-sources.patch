@@ -748,7 +748,7 @@ new file mode 100644
 index 0000000..17c09b9
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -0,0 +1,391 @@
+@@ -0,0 +1,394 @@
 +/*
 + * NABU GPU power sequence: GPUCC clocks -> RPMh ARC rails -> GDSC -> GMU handoff.
 + *
@@ -833,14 +833,15 @@ index 0000000..17c09b9
 +	return (int)regs[(base - NABU_GPUCC_REG_BASE) / 4];
 +}
 +
++/*
++ * Write through a map of the GDSC address itself, exactly like the probe=4 build
++ * that powered the CX rail successfully. Reads keep using the cached GPUCC block;
++ * an earlier attempt to send the write through that shared block froze the AP.
++ */
 +static void
 +nabu_gpu_gdsc_write(unsigned int base, unsigned int value)
 +{
-+	volatile unsigned int *regs = nabu_gpu_cc_map();
-+
-+	if (regs != 0) {
-+		regs[(base - NABU_GPUCC_REG_BASE) / 4] = value;
-+	}
++	*(volatile unsigned int *)ml_io_map(base, NABU_GPU_CX_GDSC_REG_SIZE) = value;
 +}
 +
 +/*
@@ -891,6 +892,8 @@ index 0000000..17c09b9
 +	gdscr &= ~NABU_GDSCR_SW_COLLAPSE;
 +	printf("NABU GPU: %s enable: store gdscr(%#x)=%#x\n", rail->name, rail->gdsc_base, gdscr);
 +	nabu_gpu_gdsc_write(rail->gdsc_base, gdscr);
++	printf("NABU GPU: %s enable: store returned, reads %#x\n", rail->name,
++	    nabu_gpu_gdsc_read(rail->gdsc_base));
 +	for (unsigned int round = 0; round < 50; round++) {
 +		unsigned int now = nabu_gpu_gdsc_read(rail->gdsc_base);
 +		if (now & NABU_GDSCR_PWR_ON) {
