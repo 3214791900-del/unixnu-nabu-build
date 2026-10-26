@@ -1223,7 +1223,7 @@ new file mode 100644
 index 0000000..e70d896
 --- /dev/null
 +++ b/bsd/dev/nabu_gpucc.c
-@@ -0,0 +1,236 @@
+@@ -0,0 +1,240 @@
 +/*
 + * NABU GPUCC clock gates and the GPU/GMU clock table (Adreno 640, SM8150-AC).
 + *
@@ -1255,6 +1255,8 @@ index 0000000..e70d896
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 +
 +#define NABU_GPUCC_OFFSET_UNVERIFIED 0xFFFFFFFFu
++/* 512 KiB covers both gcc gates (0x7100c and 0x71154) with room to spare. */
++#define NABU_GCC_MAP_SIZE 0x80000u
 +/* Both generated headers must agree on the sentinel; make that explicit. */
 +#if NABU_GCC_UNVERIFIED != NABU_GPUCC_OFFSET_UNVERIFIED
 +#error "gpucc/gcc generated headers disagree on the unverified sentinel"
@@ -1309,9 +1311,11 @@ index 0000000..e70d896
 +		/* 2 MiB of gcc registers. Mapped on demand only: the read-only probe does
 +		 * not need it, and the build that mapped it eagerly (v9) never reached the
 +		 * console, so keep this off the early-boot path until a gate is gated. */
++		/* Only the two gates we need (0x7100c, 0x71154) have to be reachable;
++		 * mapping the whole 2 MiB window early buys nothing. */
 +		printf("NABU GPUCC: mapping gcc %#x+%#x\n", NABU_GCC_REG_BASE,
-+		    NABU_GCC_REG_SIZE);
-+		nabu_gcc_base = ml_io_map(NABU_GCC_REG_BASE, NABU_GCC_REG_SIZE);
++		    NABU_GCC_MAP_SIZE);
++		nabu_gcc_base = ml_io_map(NABU_GCC_REG_BASE, NABU_GCC_MAP_SIZE);
 +	}
 +	return nabu_gcc_base;
 +}
@@ -1465,7 +1469,7 @@ new file mode 100644
 index 0000000..39f97c4
 --- /dev/null
 +++ b/bsd/dev/nabu_rpmh_gpu.c
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,184 @@
 +/*
 + * NABU RPMh votes for the GPU: ARC level rails (cxlvl / gfxlvl) and the cnoc bus vote.
 + *
@@ -1628,16 +1632,21 @@ index 0000000..39f97c4
 +		return;
 +	}
 +	printf("NABU GPU: probe requested via nabugpuprobe=%d\n", enabled);
-+	nabu_gpu_power_probe();
-+	nabu_gpucc_report();
 +	if (enabled >= 2) {
++		/* Staged write first: the read-only inventory below is the slowest part of
++		 * the log and would push this output off screen. */
 +		unsigned int steps = NABU_GPU_STEP_CLOCKS;
 +
++		printf("NABU GPU: ===== staged write begin =====\n");
 +		if (enabled >= 3) {
 +			steps |= NABU_GPU_STEP_ARC;
 +		}
 +		(void)nabu_gpu_steps(steps);
++		printf("NABU GPU: ===== staged write end =====\n");
++		return;
 +	}
++	nabu_gpu_power_probe();
++	nabu_gpucc_report();
 +}
 +
 +/* nabu_ufs.c used to call this, but that file is entangled with patches 0107/0108
