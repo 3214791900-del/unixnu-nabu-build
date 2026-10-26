@@ -748,7 +748,7 @@ new file mode 100644
 index 0000000..17c09b9
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -0,0 +1,327 @@
+@@ -0,0 +1,334 @@
 +/*
 + * NABU GPU power sequence: GPUCC clocks -> RPMh ARC rails -> GDSC -> GMU handoff.
 + *
@@ -900,10 +900,17 @@ index 0000000..17c09b9
 +	}
 +
 +	printf("NABU GPU: stage 5/5 GX rail + GDSC\n");
-+	error = nabu_rpmh_arc_vote(NABU_RPMH_RES_GFXLVL, gx_level);
-+	if (error) {
-+		printf("NABU GPU: stage 5 GX vote failed (%d)\n", error);
-+		return error;
++	if (gx_level != 0) {
++		error = nabu_rpmh_arc_vote(NABU_RPMH_RES_GFXLVL, gx_level);
++		if (error) {
++			printf("NABU GPU: stage 5 GX vote failed (%d)\n", error);
++			return error;
++		}
++	} else {
++		/* Stage 3 already voted GX retention. Re-sending the identical value makes
++		 * the RSC create no new transaction, so the completion poll always times
++		 * out and quarantines the TCS for the rest of the boot. */
++		printf("NABU GPU: GX already at retention from stage 3; no duplicate vote\n");
 +	}
 +	error = nabu_gpu_gdsc_enable(&nabu_gpu_rails[1]);
 +	if (error) {
