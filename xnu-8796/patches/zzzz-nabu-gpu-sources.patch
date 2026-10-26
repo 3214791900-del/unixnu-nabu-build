@@ -363,7 +363,7 @@ index 0000000..bbfec7d
 +#define NABU_GPU_STEP_CX_GDSC 0x4u   /* CX rail only; GX still untouched */
 +#define NABU_GPU_STEP_POWER_UP 0x8u  /* full sequence incl. GX (GDSC verified) */
 +int nabu_gpu_steps(unsigned int steps);
-+int nabu_gpu_stage_cx_gdsc(void);
++int nabu_gpu_stage_rail(unsigned int idx);
 +void nabu_gpu_power_down(void);
 +
 +/* stage 6: load the GMU firmware and bring HFI up (needs power up first) */
@@ -748,7 +748,7 @@ new file mode 100644
 index 0000000..17c09b9
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -0,0 +1,394 @@
+@@ -0,0 +1,404 @@
 +/*
 + * NABU GPU power sequence: GPUCC clocks -> RPMh ARC rails -> GDSC -> GMU handoff.
 + *
@@ -1071,9 +1071,16 @@ index 0000000..17c09b9
 +		printf("NABU GPU: power up -> %d\n", error);
 +	}
 +	if (steps & NABU_GPU_STEP_CX_GDSC) {
-+		printf("NABU GPU: CX GDSC experiment (the only rail-collapsing write so far)\n");
-+		error = nabu_gpu_stage_cx_gdsc();
-+		printf("NABU GPU: CX GDSC -> %d\n", error);
++		unsigned int rails = (steps & NABU_GPU_STEP_POWER_UP) ? 2u : 1u;
++
++		for (unsigned int r = 0; r < rails; r++) {
++			printf("NABU GPU: rail %u GDSC via the probe=4 path\n", r);
++			error = nabu_gpu_stage_rail(r);
++			printf("NABU GPU: rail %u GDSC -> %d\n", r, error);
++			if (error) {
++				break;
++			}
++		}
 +	}
 +	printf("NABU GPU: steps done\n");
 +	return NABU_GPU_OK;
@@ -1109,9 +1116,12 @@ index 0000000..17c09b9
 + * asserts PWR_ON the original value is written back. GX is not touched.
 + */
 +int
-+nabu_gpu_stage_cx_gdsc(void)
++nabu_gpu_stage_rail(unsigned int idx)
 +{
-+	nabu_gpu_rail_t *rail = &nabu_gpu_rails[0];
++	if (idx >= sizeof(nabu_gpu_rails) / sizeof(nabu_gpu_rails[0])) {
++		return EINVAL;
++	}
++	nabu_gpu_rail_t *rail = &nabu_gpu_rails[idx];
 +	unsigned int before = nabu_gpu_gdsc_read(rail->gdsc_base);
 +
 +	printf("NABU GPU: CX gdscr before = %#x (PWR_ON=%u SW_COLLAPSE=%u)\n", before,
@@ -1797,7 +1807,10 @@ index 0000000..39f97c4
 +			steps |= NABU_GPU_STEP_CX_GDSC;
 +		}
 +		if (enabled >= 5) {
-+			steps |= NABU_GPU_STEP_POWER_UP;
++			/* Same code path that powered CX on its own (probe=4); the full
++			 * nabu_gpu_power_up() sequence froze at the very same store, so it is not
++			 * used while the anomaly is unexplained. */
++			steps |= NABU_GPU_STEP_CX_GDSC;
 +		}
 +		(void)nabu_gpu_steps(steps);
 +		printf("NABU GPU: ===== staged write end =====\n");
