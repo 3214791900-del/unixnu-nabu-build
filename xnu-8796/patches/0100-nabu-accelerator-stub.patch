@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..21a36a0
 --- /dev/null
 +++ b/iokit/Kernel/arm/NabuAccelerator.cpp
-@@ -0,0 +1,187 @@
+@@ -0,0 +1,241 @@
 +/*
 + * IOAcceleratorES / IOAcceleratorESLegacy: stubs for the GPU accelerator
 + * services backboardd matches on every boot.
@@ -138,9 +138,9 @@ index 0000000..21a36a0
 +	 * rejected on its properties.  Publish what a real Apple GPU publishes
 +	 * and see whether anything changes.
 +	 */
-+	setProperty("MetalPluginName", "AGXMetalG13");
-+	setProperty("IOGLBundleName", "AGXG13");
-+	setProperty("IOAcceleratorClassName", "AGXAcceleratorG13");
++	setProperty("MetalPluginName", "AGXMetalG9");
++	setProperty("IOGLBundleName", "AGXG9");
++	setProperty("IOAcceleratorClassName", "AGXAcceleratorG9");
 +	OSDictionary *caps = OSDictionary::withCapacity(4);
 +	if (caps != NULL) {
 +		OSNumber *n = OSNumber::withNumber((unsigned long long)8, 32);
@@ -190,12 +190,66 @@ index 0000000..21a36a0
 +{
 +	IOService::stop(provider);
 +}
++/*
++ * AGXAccelerator / AGXAcceleratorG9.
++ *
++ * The iPad7,x kernelcache names its accelerator classes AGXAccelerator,
++ * AGXAcceleratorG5 and AGXAcceleratorG9. backboardd matches an IOProviderClass of
++ * that name and logged "-> none" for us, because our service was called
++ * IOAcceleratorES and advertised G13 (A15) properties on an A10X-shaped platform.
++ *
++ * Still a stub: it answers the match and publishes the property set a real GPU
++ * publishes. IOAcceleratorESUserClient logs every user client call.
++ */
++class AGXAccelerator : public IOAccelerator {
++	OSDeclareDefaultStructors(AGXAccelerator);
++
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(AGXAccelerator, IOAccelerator);
++
++bool
++AGXAccelerator::start(IOService *provider)
++{
++	if (!IOAccelerator::start(provider)) {
++		return false;
++	}
++	registerService();
++	NABU_ACCEL_LOG("AGXAccelerator registered");
++	return true;
++}
++
++class AGXAcceleratorG9 : public IOAcceleratorES {
++	OSDeclareDefaultStructors(AGXAcceleratorG9);
++
++public:
++	bool start(IOService *provider) APPLE_KEXT_OVERRIDE;
++};
++
++OSDefineMetaClassAndStructors(AGXAcceleratorG9, IOAcceleratorES);
++
++bool
++AGXAcceleratorG9::start(IOService *provider)
++{
++	if (!IOAcceleratorES::start(provider)) {
++		return false;
++	}
++	setProperty("MetalPluginName", "AGXMetalG9");
++	setProperty("IOGLBundleName", "AGXG9");
++	setProperty("IOAcceleratorClassName", "AGXAcceleratorG9");
++	setProperty("IOClass", "AGXAcceleratorG9");
++	NABU_ACCEL_LOG("AGXAcceleratorG9 registered (G9 properties)");
++	return true;
++}
++
 +#endif /* NABU */
 diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
 index 999a2d1..307ca60 100644
 --- a/iokit/KernelConfigTables.cpp
 +++ b/iokit/KernelConfigTables.cpp
-@@ -1,95 +1,105 @@
+@@ -1,95 +1,115 @@
 -/*
 - * Copyright (c) 1998-2012 Apple Inc. All rights reserved.
 - *
@@ -388,6 +442,16 @@ index 999a2d1..307ca60 100644
 +    "     'IOClass'         = IOAcceleratorESLegacy;"
 +    "     'IOProviderClass' = IOResources;"
 +    "     'IOMatchCategory' = IOAcceleratorESLegacy;"
++    "   },"
++    "   {"
++    "     'IOClass'         = AGXAcceleratorG9;"
++    "     'IOProviderClass' = IOResources;"
++    "     'IOMatchCategory' = AGXAcceleratorG9;"
++    "   },"
++    "   {"
++    "     'IOClass'         = AGXAccelerator;"
++    "     'IOProviderClass' = IOResources;"
++    "     'IOMatchCategory' = AGXAccelerator;"
 +    "   },"
 +#endif
 +    "   {"
