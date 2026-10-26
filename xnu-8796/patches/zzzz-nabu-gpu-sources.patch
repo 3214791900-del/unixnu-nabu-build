@@ -333,7 +333,7 @@ new file mode 100644
 index 0000000..bbfec7d
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu.h
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,40 @@
 +/*
 + * NABU GPU bring-up: public interface between the clock/rail stages.
 + *
@@ -349,10 +349,18 @@ index 0000000..bbfec7d
 +int nabu_gpucc_clock_enable(const char *name);
 +int nabu_gpucc_enable_gmu_set(void);
 +void nabu_gpucc_report(void);
++int nabu_gpucc_enable_all(void);
++void nabu_gpucc_dump(void);
 +
 +/* nabu_gpu_power.c -- rails, ARC votes, sequence */
 +void nabu_gpu_power_probe(void);
 +int nabu_gpu_power_up(unsigned int cx_level, unsigned int gx_level);
++
++/* Staged bring-up for the first hardware writes: clocks first, ARC votes second.
++ * Both are gated by boot-arg so an ordinary boot writes nothing. */
++#define NABU_GPU_STEP_CLOCKS 0x1u
++#define NABU_GPU_STEP_ARC    0x2u
++int nabu_gpu_steps(unsigned int steps);
 +void nabu_gpu_power_down(void);
 +
 +/* stage 6: load the GMU firmware and bring HFI up (needs power up first) */
@@ -737,7 +745,7 @@ new file mode 100644
 index 0000000..17c09b9
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -0,0 +1,203 @@
+@@ -0,0 +1,245 @@
 +/*
 + * NABU GPU power sequence: GPUCC clocks -> RPMh ARC rails -> GDSC -> GMU handoff.
 + *
@@ -939,6 +947,48 @@ index 0000000..17c09b9
 +		return error;
 +	}
 +	printf("NABU GPU: stage 6 complete; safe to program the ring\n");
++	return NABU_GPU_OK;
++}
++
++/*
++ * Staged bring-up for hardware runs, used by boot-arg levels 2 and 3.
++ *
++ * Deliberately absent:
++ *   - any GDSC write (polarity verified in one direction only; a wrong write
++ *     collapses a rail with no log at all)
++ *   - the bus vote (which BCM the grp3d path uses is still unresolved: the DT's
++ *     qcom,bcm-dev nodes are empty, so it has to come from the msm_bus topology)
++ */
++int
++nabu_gpu_steps(unsigned int steps)
++{
++	int error;
++
++	printf("NABU GPU: steps=%#x (no GDSC write, no bus vote)\n", steps);
++	if (steps & NABU_GPU_STEP_CLOCKS) {
++		error = nabu_gpucc_init();
++		if (error) {
++			printf("NABU GPU: clock controller map failed (%d)\n", error);
++			return error;
++		}
++		error = nabu_gpucc_enable_all();
++		nabu_gpucc_dump();
++		if (error) {
++			return error;
++		}
++	}
++	if (steps & NABU_GPU_STEP_ARC) {
++		static const char *const rails[] = {
++			NABU_RPMH_RES_CXLVL, NABU_RPMH_RES_GFXLVL,
++		};
++
++		for (unsigned int i = 0; i < sizeof(rails) / sizeof(rails[0]); i++) {
++			printf("NABU GPU: ARC vote %s level 0 (retention)\n", rails[i]);
++			error = nabu_rpmh_arc_vote(rails[i], 0);
++			printf("NABU GPU: ARC vote %s -> %d\n", rails[i], error);
++		}
++	}
++	printf("NABU GPU: steps done\n");
 +	return NABU_GPU_OK;
 +}
 diff --git a/bsd/dev/nabu_gpu_ring.c b/bsd/dev/nabu_gpu_ring.c
@@ -1173,7 +1223,7 @@ new file mode 100644
 index 0000000..e70d896
 --- /dev/null
 +++ b/bsd/dev/nabu_gpucc.c
-@@ -0,0 +1,194 @@
+@@ -0,0 +1,236 @@
 +/*
 + * NABU GPUCC clock gates and the GPU/GMU clock table (Adreno 640, SM8150-AC).
 + *
@@ -1368,12 +1418,54 @@ index 0000000..e70d896
 +		    nabu_gpucc_verified(clock) ? "pinned" : "OFFSET UNVERIFIED");
 +	}
 +}
++
++/* Gate all eight clocks. Each failure names the clock that refused. */
++int
++nabu_gpucc_enable_all(void)
++{
++	unsigned int done = 0;
++
++	for (unsigned int i = 0; i < nabu_gpucc_total_count(); i++) {
++		int error = nabu_gpucc_clock_enable(nabu_gpucc_clocks[i].name);
++		if (error) {
++			printf("NABU GPUCC: %u/%u gated, %s failed (%d)\n", done,
++			    nabu_gpucc_total_count(), nabu_gpucc_clocks[i].name, error);
++			return error;
++		}
++		done++;
++	}
++	printf("NABU GPUCC: %u/%u clock gates enabled\n", done, nabu_gpucc_total_count());
++	return 0;
++}
++
++/*
++ * Read every CBCR back. A wrong offset shows up here as a register that did not
++ * change, which is the only way to notice it before the GPU is asked to run.
++ */
++void
++nabu_gpucc_dump(void)
++{
++	for (unsigned int i = 0; i < nabu_gpucc_total_count(); i++) {
++		nabu_gpucc_clock_t *clock = &nabu_gpucc_clocks[i];
++		vm_offset_t base = nabu_gpucc_clock_base(clock);
++
++		if (!nabu_gpucc_verified(clock) || base == 0) {
++			printf("NABU GPUCC:   %-16s cbcr %#x not readable\n", clock->name,
++			    clock->cbcr_off);
++			continue;
++		}
++		unsigned int value = *(volatile unsigned int *)(base + clock->cbcr_off);
++		printf("NABU GPUCC:   %-16s cbcr %#x = %#x %s\n", clock->name,
++		    clock->cbcr_off, value,
++		    (clock->en_mask != 0 && (value & clock->en_mask)) ? "ENABLED" : "off");
++	}
++}
 diff --git a/bsd/dev/nabu_rpmh_gpu.c b/bsd/dev/nabu_rpmh_gpu.c
 new file mode 100644
 index 0000000..39f97c4
 --- /dev/null
 +++ b/bsd/dev/nabu_rpmh_gpu.c
-@@ -0,0 +1,171 @@
+@@ -0,0 +1,179 @@
 +/*
 + * NABU RPMh votes for the GPU: ARC level rails (cxlvl / gfxlvl) and the cnoc bus vote.
 + *
@@ -1535,9 +1627,17 @@ index 0000000..39f97c4
 +	if (!enabled) {
 +		return;
 +	}
-+	printf("NABU GPU: probe requested via nabugpuprobe=1\n");
++	printf("NABU GPU: probe requested via nabugpuprobe=%d\n", enabled);
 +	nabu_gpu_power_probe();
 +	nabu_gpucc_report();
++	if (enabled >= 2) {
++		unsigned int steps = NABU_GPU_STEP_CLOCKS;
++
++		if (enabled >= 3) {
++			steps |= NABU_GPU_STEP_ARC;
++		}
++		(void)nabu_gpu_steps(steps);
++	}
 +}
 +
 +/* nabu_ufs.c used to call this, but that file is entangled with patches 0107/0108
