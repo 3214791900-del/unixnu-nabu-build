@@ -748,7 +748,7 @@ new file mode 100644
 index 0000000..17c09b9
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -0,0 +1,393 @@
+@@ -0,0 +1,391 @@
 +/*
 + * NABU GPU power sequence: GPUCC clocks -> RPMh ARC rails -> GDSC -> GMU handoff.
 + *
@@ -885,11 +885,9 @@ index 0000000..17c09b9
 +	}
 +	unsigned int gdscr = nabu_gpu_gdsc_read(rail->gdsc_base);
 +	printf("NABU GPU: %s enable: before=%#x\n", rail->name, gdscr);
-+	/* No-op store: same value back. If the machine dies here, writing this register
-+	 * is the problem and not the power sequencing. */
-+	nabu_gpu_gdsc_write(rail->gdsc_base, gdscr);
-+	printf("NABU GPU: %s enable: noop store ok, reads %#x\n", rail->name,
-+	    nabu_gpu_gdsc_read(rail->gdsc_base));
++	/* The 2026-10-26 no-op store proved writes to this register are safe, but the
++	 * second (real) write right after it froze the machine while the same write on
++	 * its own had worked in the previous build -- so write exactly once. */
 +	gdscr &= ~NABU_GDSCR_SW_COLLAPSE;
 +	printf("NABU GPU: %s enable: store gdscr(%#x)=%#x\n", rail->name, rail->gdsc_base, gdscr);
 +	nabu_gpu_gdsc_write(rail->gdsc_base, gdscr);
