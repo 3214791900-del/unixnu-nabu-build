@@ -333,7 +333,7 @@ new file mode 100644
 index 0000000..bbfec7d
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu.h
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,44 @@
 +/*
 + * NABU GPU bring-up: public interface between the clock/rail stages.
 + *
@@ -362,6 +362,7 @@ index 0000000..bbfec7d
 +#define NABU_GPU_STEP_ARC    0x2u
 +#define NABU_GPU_STEP_CX_GDSC 0x4u   /* CX rail only; GX still untouched */
 +#define NABU_GPU_STEP_POWER_UP 0x8u  /* full sequence incl. GX (GDSC verified) */
++#define NABU_GPU_STEP_GX_GDSC  0x10u /* second rail, via the same probe=4 path */
 +int nabu_gpu_steps(unsigned int steps);
 +int nabu_gpu_stage_rail(unsigned int idx);
 +void nabu_gpu_power_down(void);
@@ -748,7 +749,7 @@ new file mode 100644
 index 0000000..17c09b9
 --- /dev/null
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -0,0 +1,404 @@
+@@ -0,0 +1,402 @@
 +/*
 + * NABU GPU power sequence: GPUCC clocks -> RPMh ARC rails -> GDSC -> GMU handoff.
 + *
@@ -1071,16 +1072,14 @@ index 0000000..17c09b9
 +		printf("NABU GPU: power up -> %d\n", error);
 +	}
 +	if (steps & NABU_GPU_STEP_CX_GDSC) {
-+		unsigned int rails = (steps & NABU_GPU_STEP_POWER_UP) ? 2u : 1u;
-+
-+		for (unsigned int r = 0; r < rails; r++) {
-+			printf("NABU GPU: rail %u GDSC via the probe=4 path\n", r);
-+			error = nabu_gpu_stage_rail(r);
-+			printf("NABU GPU: rail %u GDSC -> %d\n", r, error);
-+			if (error) {
-+				break;
-+			}
-+		}
++		printf("NABU GPU: rail 0 GDSC via the probe=4 path\n");
++		error = nabu_gpu_stage_rail(0);
++		printf("NABU GPU: rail 0 GDSC -> %d\n", error);
++	}
++	if (!error && (steps & NABU_GPU_STEP_GX_GDSC)) {
++		printf("NABU GPU: rail 1 GDSC via the probe=4 path\n");
++		error = nabu_gpu_stage_rail(1);
++		printf("NABU GPU: rail 1 GDSC -> %d\n", error);
 +	}
 +	printf("NABU GPU: steps done\n");
 +	return NABU_GPU_OK;
@@ -1810,7 +1809,7 @@ index 0000000..39f97c4
 +			/* Same code path that powered CX on its own (probe=4); the full
 +			 * nabu_gpu_power_up() sequence froze at the very same store, so it is not
 +			 * used while the anomaly is unexplained. */
-+			steps |= NABU_GPU_STEP_CX_GDSC;
++			steps |= NABU_GPU_STEP_GX_GDSC;
 +		}
 +		(void)nabu_gpu_steps(steps);
 +		printf("NABU GPU: ===== staged write end =====\n");
