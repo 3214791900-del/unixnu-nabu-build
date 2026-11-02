@@ -1,8 +1,70 @@
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..f3e1e17 100644
+index 25de5a3..58d0664 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -879,9 +879,19 @@ bsd_init(void)
+@@ -716,6 +716,9 @@ bsd_init(void)
+ 	/* Initialize mbuf's. */
+ 	bsd_init_kprintf("calling mbinit\n");
+ 	mbinit();
++#if defined(NABU)
++	kprintf("NABU BOOT: after mbinit\n");
++#endif
+ 	restricted_in_port_init();
+ #endif /* SOCKETS */
+ 
+@@ -726,6 +729,9 @@ bsd_init(void)
+ #if CONFIG_AUDIT
+ 	bsd_init_kprintf("calling audit_init\n");
+ 	audit_init();
++#if defined(NABU)
++	kprintf("NABU BOOT: after audit_init\n");
++#endif
+ #endif
+ 
+ 	/* Initialize kqueues */
+@@ -741,6 +747,9 @@ bsd_init(void)
+ 	aio_init();
+ 
+ 	pthread_init();
++#if defined(NABU)
++	kprintf("NABU BOOT: after pthread_init\n");
++#endif
+ 	/* POSIX Shm and Sem */
+ 	bsd_init_kprintf("calling pshm_cache_init\n");
+ 	pshm_cache_init();
+@@ -799,6 +808,9 @@ bsd_init(void)
+ 
+ 	bsd_init_kprintf("calling bsd_autoconf\n");
+ 	bsd_autoconf();
++#if defined(NABU)
++	kprintf("NABU BOOT: after bsd_autoconf\n");
++#endif
+ 
+ #if CONFIG_DTRACE
+ 	dtrace_postinit();
+@@ -812,7 +824,10 @@ bsd_init(void)
+ #include <loop.h>
+ #if NLOOP > 0
+ 	bsd_init_kprintf("calling loopattach\n");
+-	loopattach();                   /* XXX */
++	loopattach();
++#if defined(NABU)
++	kprintf("NABU BOOT: after loopattach\n");
++#endif                   /* XXX */
+ #endif
+ #if NGIF
+ 	/* Initialize gif interface (after lo0) */
+@@ -863,6 +878,9 @@ bsd_init(void)
+ 	 */
+ 	bsd_init_kprintf("calling net_init_run\n");
+ 	net_init_run();
++#if defined(NABU)
++	kprintf("NABU BOOT: after net_init_run\n");
++#endif
+ #endif /* NETWORKING */
+ 
+ 	bsd_init_kprintf("calling inittodr\n");
+@@ -879,9 +897,19 @@ bsd_init(void)
  #endif
  
  		bsd_init_kprintf("vfs_mountroot\n");
