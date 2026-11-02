@@ -1,8 +1,15 @@
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..58d0664 100644
+index 25de5a3..8938aa5 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -716,6 +716,9 @@ bsd_init(void)
+@@ -712,10 +712,16 @@ bsd_init(void)
+ #if SOCKETS
+ 	/* Initialize per-CPU cache allocator */
+ 	mcache_init();
++#if defined(NABU)
++	kprintf("NABU BOOT: after mcache_init\n");
++#endif
+ 
  	/* Initialize mbuf's. */
  	bsd_init_kprintf("calling mbinit\n");
  	mbinit();
@@ -12,7 +19,7 @@ index 25de5a3..58d0664 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,6 +729,9 @@ bsd_init(void)
+@@ -726,26 +732,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -22,8 +29,25 @@ index 25de5a3..58d0664 100644
  #endif
  
  	/* Initialize kqueues */
-@@ -741,6 +747,9 @@ bsd_init(void)
+ 	bsd_init_kprintf("calling knote_init\n");
+ 	knote_init();
++#if defined(NABU)
++	kprintf("NABU BOOT: after knote_init\n");
++#endif
+ 
+ 	/* Initialize event handler */
+ 	bsd_init_kprintf("calling eventhandler_init\n");
+ 	eventhandler_init();
++#if defined(NABU)
++	kprintf("NABU BOOT: after eventhandler_init\n");
++#endif
+ 
+ 	/* Initialize for async IO */
+ 	bsd_init_kprintf("calling aio_init\n");
  	aio_init();
++#if defined(NABU)
++	kprintf("NABU BOOT: after aio_init\n");
++#endif
  
  	pthread_init();
 +#if defined(NABU)
@@ -32,7 +56,58 @@ index 25de5a3..58d0664 100644
  	/* POSIX Shm and Sem */
  	bsd_init_kprintf("calling pshm_cache_init\n");
  	pshm_cache_init();
-@@ -799,6 +808,9 @@ bsd_init(void)
++#if defined(NABU)
++	kprintf("NABU BOOT: after pshm_cache_init\n");
++#endif
+ 	bsd_init_kprintf("calling psem_cache_init\n");
+ 	psem_cache_init();
++#if defined(NABU)
++	kprintf("NABU BOOT: after psem_cache_init\n");
++#endif
+ 
+ 	/*
+ 	 * Initialize protocols.  Block reception of incoming packets
+@@ -754,14 +781,26 @@ bsd_init(void)
+ #if NETWORKING
+ 	bsd_init_kprintf("calling nwk_wq_init\n");
+ 	nwk_wq_init();
++#if defined(NABU)
++	kprintf("NABU BOOT: after nwk_wq_init\n");
++#endif
+ 	bsd_init_kprintf("calling dlil_init\n");
+ 	dlil_init();
++#if defined(NABU)
++	kprintf("NABU BOOT: after dlil_init\n");
++#endif
+ #endif /* NETWORKING */
+ #if SOCKETS
+ 	bsd_init_kprintf("calling socketinit\n");
+ 	socketinit();
++#if defined(NABU)
++	kprintf("NABU BOOT: after socketinit\n");
++#endif
+ 	bsd_init_kprintf("calling domaininit\n");
+ 	domaininit();
++#if defined(NABU)
++	kprintf("NABU BOOT: after domaininit\n");
++#endif
+ 	iptap_init();
+ #if FLOW_DIVERT
+ 	flow_divert_init();
+@@ -792,13 +831,22 @@ bsd_init(void)
+ 	/* Initialize kernel memory status notifications */
+ 	bsd_init_kprintf("calling memorystatus_init\n");
+ 	memorystatus_init();
++#if defined(NABU)
++	kprintf("NABU BOOT: after memorystatus_init\n");
++#endif
+ #endif /* CONFIG_MEMORYSTATUS */
+ 
+ 	bsd_init_kprintf("calling sysctl_mib_init\n");
+ 	sysctl_mib_init();
++#if defined(NABU)
++	kprintf("NABU BOOT: after sysctl_mib_init\n");
++#endif
  
  	bsd_init_kprintf("calling bsd_autoconf\n");
  	bsd_autoconf();
@@ -42,45 +117,3 @@ index 25de5a3..58d0664 100644
  
  #if CONFIG_DTRACE
  	dtrace_postinit();
-@@ -812,7 +824,10 @@ bsd_init(void)
- #include <loop.h>
- #if NLOOP > 0
- 	bsd_init_kprintf("calling loopattach\n");
--	loopattach();                   /* XXX */
-+	loopattach();
-+#if defined(NABU)
-+	kprintf("NABU BOOT: after loopattach\n");
-+#endif                   /* XXX */
- #endif
- #if NGIF
- 	/* Initialize gif interface (after lo0) */
-@@ -863,6 +878,9 @@ bsd_init(void)
- 	 */
- 	bsd_init_kprintf("calling net_init_run\n");
- 	net_init_run();
-+#if defined(NABU)
-+	kprintf("NABU BOOT: after net_init_run\n");
-+#endif
- #endif /* NETWORKING */
- 
- 	bsd_init_kprintf("calling inittodr\n");
-@@ -879,9 +897,19 @@ bsd_init(void)
- #endif
- 
- 		bsd_init_kprintf("vfs_mountroot\n");
-+#if defined(NABU)
-+		/* NABU: this stage is otherwise silent, and a stall here is invisible. */
-+		kprintf("NABU BOOT: vfs_mountroot() enter\n");
-+#endif
- 		if (0 == (err = vfs_mountroot())) {
-+#if defined(NABU)
-+			kprintf("NABU BOOT: vfs_mountroot() = 0, root mounted\n");
-+#endif
- 			break;
- 		}
-+#if defined(NABU)
-+		kprintf("NABU BOOT: vfs_mountroot() = %d, will retry\n", err);
-+#endif
- 		rootdevice[0] = '\0';
- #if CONFIG_NETBOOT
- 		if (netboot) {
