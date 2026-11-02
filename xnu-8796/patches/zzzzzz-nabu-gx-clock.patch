@@ -15,29 +15,62 @@ index 604bf7e..458cdb9 100644
 +#define NABU_GPUCC_GX_GMU_CLK_MASK 0x00000001u
 +
  #endif /* NABU_GPUCC_CLOCKS_H */
+diff --git a/bsd/dev/nabu_gpu.h b/bsd/dev/nabu_gpu.h
+index ef90324..47a17fe 100644
+--- a/bsd/dev/nabu_gpu.h
++++ b/bsd/dev/nabu_gpu.h
+@@ -27,6 +27,7 @@ int nabu_gpu_power_up(unsigned int cx_level, unsigned int gx_level);
+ #define NABU_GPU_STEP_CX_GDSC 0x4u   /* CX rail only; GX still untouched */
+ #define NABU_GPU_STEP_POWER_UP 0x8u  /* full sequence incl. GX (GDSC verified) */
+ #define NABU_GPU_STEP_GX_GDSC  0x10u /* second rail, via the same probe=4 path */
++#define NABU_GPU_STEP_CLAMP    0x20u /* read-only: GX clamp_io + GDSCR, writes nothing */
+ int nabu_gpu_steps(unsigned int steps);
+ int nabu_gpu_stage_rail(unsigned int idx);
+ void nabu_gpu_power_down(void);
 diff --git a/bsd/dev/nabu_gpu_power.c b/bsd/dev/nabu_gpu_power.c
-index 6856de6..16e642d 100644
+index 6856de6..e320960 100644
 --- a/bsd/dev/nabu_gpu_power.c
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -325,9 +325,25 @@ nabu_gpu_steps(unsigned int steps)
+@@ -42,6 +42,9 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ 
+ #define NABU_GPU_OK              0
+ 
++/* gpu_gx_gdsc.clamp_io_ctrl = 0x1508 in Linux, an offset inside the GPUCC block. */
++#define NABU_GPU_GX_CLAMP_IO  (NABU_GPUCC_REG_BASE + 0x1508u)
++
+ typedef struct nabu_gpu_rail {
+ 	const char *name;
+ 	unsigned int gdsc_base;      /* inside GPUCC, from the device tree */
+@@ -324,10 +327,36 @@ nabu_gpu_steps(unsigned int steps)
+ 		error = nabu_gpu_stage_rail(0);
  		printf("NABU GPU: rail 0 GDSC -> %d\n", error);
  	}
++	if (steps & NABU_GPU_STEP_CLAMP) {
++		/*
++		 * Where the GX rail's "clamp" lives: Linux's gpu_gx_gdsc carries
++		 * .clamp_io_ctrl = 0x1508 (an offset inside this GPUCC block) and the
++		 * CLAMP_IO flag, i.e. the rail can be held clamped independently of the
++		 * GDSCR bits. Read it before anything is written anywhere.
++		 */
++		unsigned int clamp = *(volatile unsigned int *)ml_io_map(NABU_GPU_GX_CLAMP_IO, 4u);
++		unsigned int gdscr = nabu_gpu_gdsc_read(nabu_gpu_rails[1].gdsc_base);
++
++		printf("NABU GPU: GX clamp_io(%#x) = %#x  gdscr(%#x) = %#x PWR_ON=%u "
++		    "(read-only)\n", NABU_GPU_GX_CLAMP_IO, clamp,
++		    nabu_gpu_rails[1].gdsc_base, gdscr,
++		    (gdscr & NABU_GDSCR_PWR_ON) ? 1u : 0u);
++	}
  	if (!error && (steps & NABU_GPU_STEP_GX_GDSC)) {
 -		printf("NABU GPU: rail 1 GDSC via the probe=4 path\n");
 -		error = nabu_gpu_stage_rail(1);
 -		printf("NABU GPU: rail 1 GDSC -> %d\n", error);
 +		/*
-+		 * The GX rail's GDSC is NOT written here, and that is not laziness:
-+		 * writing 0x2c9100c is exactly the store that froze the tablet on
-+		 * 2026-10-26 and again on 2026-11-02 (probe=5), with the GX clock already
-+		 * running both times.
-+		 *
-+		 * Linux never writes it either: gpu_gx_gdsc carries
-+		 * .power_on = gdsc_gx_do_nothing_enable plus CLAMP_IO | AON_RESET |
-+		 * POLL_CFG_GDSCR (gpucc-sm8150.c, the gpu_gx_gdsc block). The GX domain is
++		 * The GX rail's GDSC is NOT written here: writing 0x2c9100c froze the
++		 * tablet on 2026-10-26 and again on 2026-11-02 (probe=5), with the GX
++		 * clock running both times. Linux never writes it either -- gpu_gx_gdsc
++		 * carries .power_on = gdsc_gx_do_nothing_enable plus
++		 * CLAMP_IO | AON_RESET | POLL_CFG_GDSCR (gpucc-sm8150.c). The GX domain is
 +		 * lifted by the clock and the ARC vote, and the GMU owns it after that.
-+		 *
-+		 * So: one read, no write, and the value goes into the log.
 +		 */
 +		unsigned int gdscr = nabu_gpu_gdsc_read(nabu_gpu_rails[1].gdsc_base);
 +
@@ -66,3 +99,18 @@ index 12f2026..311c376 100644
  };
  
  static vm_offset_t nabu_gpucc_base;
+diff --git a/bsd/dev/nabu_rpmh_gpu.c b/bsd/dev/nabu_rpmh_gpu.c
+index 1b43a54..ea0bcb3 100644
+--- a/bsd/dev/nabu_rpmh_gpu.c
++++ b/bsd/dev/nabu_rpmh_gpu.c
+@@ -172,6 +172,10 @@ nabu_gpu_probe_boot(void)
+ 		if (enabled == 4) {
+ 			steps |= NABU_GPU_STEP_CX_GDSC;
+ 		}
++		if (enabled == 6) {
++			/* Read-only: GX clamp_io and GDSCR, nothing is written. */
++			steps |= NABU_GPU_STEP_CLAMP;
++		}
+ 		if (enabled >= 5) {
+ 			/* Same code path that powered CX on its own (probe=4); the full
+ 			 * nabu_gpu_power_up() sequence froze at the very same store, so it is not
