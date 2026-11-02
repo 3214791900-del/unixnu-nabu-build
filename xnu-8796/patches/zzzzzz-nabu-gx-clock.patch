@@ -1,93 +1,58 @@
-warning: in the working copy of 'bsd/dev/NabuGpuccClocks.h', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'bsd/dev/nabu_gpu_power.c', LF will be replaced by CRLF the next time Git touches it
-warning: in the working copy of 'bsd/dev/nabu_gpucc.c', LF will be replaced by CRLF the next time Git touches it
 diff --git a/bsd/dev/NabuGpuccClocks.h b/bsd/dev/NabuGpuccClocks.h
-index 604bf7e..d695eb0 100644
+index 604bf7e..458cdb9 100644
 --- a/bsd/dev/NabuGpuccClocks.h
 +++ b/bsd/dev/NabuGpuccClocks.h
-@@ -35,4 +35,13 @@
+@@ -35,4 +35,12 @@
  #define NABU_GPUCC_GMU_GPU_CC_AHB_CBCR 0x1078u   /* gpu_cc_ahb_clk, dt id 0, enum id matches */
  #define NABU_GPUCC_GMU_GPU_CC_AHB_MASK 0x00000001u
  
-+/* Added by hand 2026-11-02, to be taught to derive-gpucc-clocks.py next:
++/* Hand-added 2026-11-02 (derive-gpucc-clocks.py should learn this next):
 + * gpu_cc_gx_gmu_clk -- enable_reg/halt_reg 0x1064, BIT(0).
 + * source: linux gpucc-sm8150.c, the gpu_cc_gx_gmu_clk branch.
 + * No dt id: the board's clock list does not name it; Linux enables it as the GX
-+ * side's parent clock. It is the clock the power sequence has to turn on BEFORE
-+ * the GX rail is voted up (HANDOVER-2026-10-26, section zero-two). */
++ * side's parent clock, before the GX rail is powered. */
 +#define NABU_GPUCC_GX_GMU_CLK_CBCR 0x1064u
 +#define NABU_GPUCC_GX_GMU_CLK_MASK 0x00000001u
 +
  #endif /* NABU_GPUCC_CLOCKS_H */
 diff --git a/bsd/dev/nabu_gpu_power.c b/bsd/dev/nabu_gpu_power.c
-index 6856de6..8f214c9 100644
+index 6856de6..16e642d 100644
 --- a/bsd/dev/nabu_gpu_power.c
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -40,6 +40,20 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
- #define NABU_GDSCR_SW_COLLAPSE   (1u << 0)
- #define NABU_GDSC_BITS_VERIFIED  1
- 
-+/*
-+ * The GX rail's GDSC is deliberately not written, independently of the CX gate.
-+ *
-+ * Linux gives gpu_gx_gdsc its own power_on, gdsc_gx_do_nothing_enable(), plus
-+ * CLAMP_IO | AON_RESET | POLL_CFG_GDSCR (gpucc-sm8150.c, the gpu_gx_gdsc block).
-+ * That override exists because the GX domain is not switched on by poking GDSCR
-+ * from the AP: the clock and the ARC vote lift it, and the GMU owns it after that.
-+ * Writing GDSCR there is what froze the tablet on 2026-10-26 -- screen stopped,
-+ * no panic printed, which is what an AP access to a clamp-held domain looks like.
-+ *
-+ * Keep this 0. Set it to 1 only when a run has proved the write safe here.
-+ */
-+#define NABU_GX_GDSC_WRITE       0
+@@ -325,9 +325,25 @@ nabu_gpu_steps(unsigned int steps)
+ 		printf("NABU GPU: rail 0 GDSC -> %d\n", error);
+ 	}
+ 	if (!error && (steps & NABU_GPU_STEP_GX_GDSC)) {
+-		printf("NABU GPU: rail 1 GDSC via the probe=4 path\n");
+-		error = nabu_gpu_stage_rail(1);
+-		printf("NABU GPU: rail 1 GDSC -> %d\n", error);
++		/*
++		 * The GX rail's GDSC is NOT written here, and that is not laziness:
++		 * writing 0x2c9100c is exactly the store that froze the tablet on
++		 * 2026-10-26 and again on 2026-11-02 (probe=5), with the GX clock already
++		 * running both times.
++		 *
++		 * Linux never writes it either: gpu_gx_gdsc carries
++		 * .power_on = gdsc_gx_do_nothing_enable plus CLAMP_IO | AON_RESET |
++		 * POLL_CFG_GDSCR (gpucc-sm8150.c, the gpu_gx_gdsc block). The GX domain is
++		 * lifted by the clock and the ARC vote, and the GMU owns it after that.
++		 *
++		 * So: one read, no write, and the value goes into the log.
++		 */
++		unsigned int gdscr = nabu_gpu_gdsc_read(nabu_gpu_rails[1].gdsc_base);
 +
- #define NABU_GPU_OK              0
- 
- typedef struct nabu_gpu_rail {
-@@ -208,7 +222,17 @@ nabu_gpu_power_up(unsigned int cx_level, unsigned int gx_level)
- 		return error;
++		printf("NABU GPU: rail 1 GDSCR left alone, gdscr(%#x) = %#x PWR_ON=%u\n",
++		    nabu_gpu_rails[1].gdsc_base, gdscr,
++		    (gdscr & NABU_GDSCR_PWR_ON) ? 1u : 0u);
++		printf("NABU GPU: rail 1 GDSC -> 0 (not written by design)\n");
  	}
- 
--	printf("NABU GPU: stage 5/5 GX rail + GDSC\n");
-+	printf("NABU GPU: stage 5/5 GX clock, GX rail and GDSC\n");
-+	/*
-+	 * Order matters, and it cost a hard hang once (HANDOVER-2026-10-26, zero-two):
-+	 * the GX domain's own clock has to run before the rail is voted up. Closing the
-+	 * GDSC on an unclocked GX domain makes the AP's next access hang with no panic.
-+	 */
-+	error = nabu_gpucc_clock_enable("gx_gmu_clk");
-+	if (error) {
-+		printf("NABU GPU: stage 5 GX clock failed (%d)\n", error);
-+		return error;
-+	}
- 	if (gx_level != 0) {
- 		error = nabu_rpmh_arc_vote(NABU_RPMH_RES_GFXLVL, gx_level);
- 		if (error) {
-@@ -221,9 +245,16 @@ nabu_gpu_power_up(unsigned int cx_level, unsigned int gx_level)
- 		 * out and quarantines the TCS for the rest of the boot. */
- 		printf("NABU GPU: GX already at retention from stage 3; no duplicate vote\n");
- 	}
--	error = nabu_gpu_gdsc_enable(&nabu_gpu_rails[1]);
--	if (error) {
--		return error;
-+	if (NABU_GX_GDSC_WRITE) {
-+		error = nabu_gpu_gdsc_enable(&nabu_gpu_rails[1]);
-+		if (error) {
-+			return error;
-+		}
-+	} else {
-+		printf("NABU GPU: stage 5 GX gdscr(%#x)=%#x left alone "
-+		    "(gpu_gx_gdsc is gdsc_gx_do_nothing_enable in Linux)\n",
-+		    nabu_gpu_rails[1].gdsc_base,
-+		    nabu_gpu_gdsc_read(nabu_gpu_rails[1].gdsc_base));
- 	}
- 
- 	printf("NABU GPU: power up complete; ready to load GMU firmware\n");
+ 	printf("NABU GPU: steps done\n");
+ 	return NABU_GPU_OK;
 diff --git a/bsd/dev/nabu_gpucc.c b/bsd/dev/nabu_gpucc.c
-index 12f2026..45c5da0 100644
+index 12f2026..311c376 100644
 --- a/bsd/dev/nabu_gpucc.c
 +++ b/bsd/dev/nabu_gpucc.c
-@@ -68,6 +68,14 @@ static nabu_gpucc_clock_t nabu_gpucc_clocks[] = {
+@@ -68,6 +68,13 @@ static nabu_gpucc_clock_t nabu_gpucc_clocks[] = {
  	  NABU_GCC_GPU_MEM_CLK_CBCR, 0, 0, NABU_GCC_GPU_MEM_CLK_MASK },
  	{ "mem_iface_clk", NABU_GPU_CLK_MEM_IFACE_CLK_ID, "gcc",
  	  NABU_GCC_GPU_MEM_IFACE_CLK_CBCR, 0, 0, NABU_GCC_GPU_MEM_IFACE_CLK_MASK },
@@ -95,7 +60,6 @@ index 12f2026..45c5da0 100644
 +	 * The GX side's own clock. Linux enables it as gpu_cc_gx_gmu_clk's parent
 +	 * (enable_reg 0x1064) before the GX rail is powered; the device tree does not
 +	 * name it, so there is no dt id (0 = internal, not in the DT clock list).
-+	 * Stage 5 turns it on before voting the GX rail up.
 +	 */
 +	{ "gx_gmu_clk",   0,                           "gpucc",
 +	  NABU_GPUCC_GX_GMU_CLK_CBCR, 0, 0, NABU_GPUCC_GX_GMU_CLK_MASK },
