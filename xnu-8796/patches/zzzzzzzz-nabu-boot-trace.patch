@@ -1,10 +1,28 @@
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..e314b4d 100644
+index 25de5a3..96911fc 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -712,10 +712,16 @@ bsd_init(void)
+@@ -711,11 +711,34 @@ bsd_init(void)
+ 
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
++#if defined(NABU)
++#if defined(NGIF)
++	kprintf("NABU CFG: NGIF=%d\n", NGIF);
++#else
++	kprintf("NABU CFG: NGIF undefined\n");
++#endif
++#if defined(NETHER)
++	kprintf("NABU CFG: NETHER=%d\n", NETHER);
++#else
++	kprintf("NABU CFG: NETHER undefined\n");
++#endif
++#if defined(NLOOP)
++	kprintf("NABU CFG: NLOOP=%d\n", NLOOP);
++#else
++	kprintf("NABU CFG: NLOOP undefined\n");
++#endif
++#endif
  	mcache_init();
 +#if defined(NABU)
 +	kprintf("NABU BOOT: after mcache_init\n");
@@ -19,7 +37,7 @@ index 25de5a3..e314b4d 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +732,47 @@ bsd_init(void)
+@@ -726,26 +749,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -67,7 +85,7 @@ index 25de5a3..e314b4d 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +781,26 @@ bsd_init(void)
+@@ -754,14 +798,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -94,7 +112,7 @@ index 25de5a3..e314b4d 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +808,13 @@ bsd_init(void)
+@@ -769,7 +825,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -108,7 +126,7 @@ index 25de5a3..e314b4d 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +837,28 @@ bsd_init(void)
+@@ -792,16 +854,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -137,7 +155,7 @@ index 25de5a3..e314b4d 100644
  #endif
  
  	/*
-@@ -812,11 +869,17 @@ bsd_init(void)
+@@ -812,11 +886,17 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -156,7 +174,7 @@ index 25de5a3..e314b4d 100644
  #endif
  
  #if PFLOG
-@@ -828,9 +891,18 @@ bsd_init(void)
+@@ -828,9 +908,18 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -176,7 +194,7 @@ index 25de5a3..e314b4d 100644
  #if CONTENT_FILTER
  	cfil_init();
  #endif
-@@ -863,25 +935,47 @@ bsd_init(void)
+@@ -863,25 +952,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
