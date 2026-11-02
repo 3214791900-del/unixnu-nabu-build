@@ -1,0 +1,76 @@
+diff --git a/bsd/net/dlil.c b/bsd/net/dlil.c
+index ddc5f41..b5ebaa3 100644
+--- a/bsd/net/dlil.c
++++ b/bsd/net/dlil.c
+@@ -2702,6 +2702,29 @@ dlil_init(void)
+ 	 * scheduled and run at least once before we proceed
+ 	 */
+ 	lck_mtx_lock(&dlil_thread_sync_lock);
++#if defined(NABU)
++	/*
++	 * Bounded wait: this boot has one CPU and a bring-up network stack, and an
++	 * unbounded wait here hangs the boot with no diagnoseable output. Proceed
++	 * after ~20 s and say how many threads never ran.
++	 */
++	{
++		unsigned int waited_ticks = 0;
++
++		while (dlil_pending_thread_cnt != 0 && waited_ticks < 2000) {
++			DLIL_PRINTF("%s: Waiting for the create dlil kernel threads "
++			    "(%u pending)\n", __func__, dlil_pending_thread_cnt);
++			(void) msleep(&dlil_pending_thread_cnt, &dlil_thread_sync_lock,
++			    (PZERO - 1), __func__, 100);
++			LCK_MTX_ASSERT(&dlil_thread_sync_lock, LCK_ASSERT_OWNED);
++			waited_ticks += 100;
++		}
++		if (dlil_pending_thread_cnt != 0) {
++			printf("NABU NET: dlil threads never ran (%u pending); proceeding\n",
++			    dlil_pending_thread_cnt);
++		}
++	}
++#else
+ 	while (dlil_pending_thread_cnt != 0) {
+ 		DLIL_PRINTF("%s: Waiting for all the create dlil kernel "
+ 		    "threads to get scheduled at least once.\n", __func__);
+@@ -2709,6 +2732,7 @@ dlil_init(void)
+ 		    (PZERO - 1), __func__, NULL);
+ 		LCK_MTX_ASSERT(&dlil_thread_sync_lock, LCK_ASSERT_OWNED);
+ 	}
++#endif /* NABU */
+ 	lck_mtx_unlock(&dlil_thread_sync_lock);
+ 	DLIL_PRINTF("%s: All the created dlil kernel threads have been "
+ 	    "scheduled at least once. Proceeding.\n", __func__);
+@@ -9074,6 +9098,25 @@ ifnet_attach(ifnet_t ifp, const struct sockaddr_dl *ll_addr)
+ 	 * to mark interface as attached.
+ 	 */
+ 	lck_mtx_lock(&ifp->if_ref_lock);
++#if defined(NABU)
++	{
++		unsigned int waited_ticks = 0;
++
++		while (ifp->if_threads_pending != 0 && waited_ticks < 2000) {
++			DLIL_PRINTF("%s: Waiting for interface %s threads "
++			    "(%u pending)\n", __func__, ifp->if_xname,
++			    ifp->if_threads_pending);
++			(void) msleep(&ifp->if_threads_pending, &ifp->if_ref_lock,
++			    (PZERO - 1), __func__, 100);
++			LCK_MTX_ASSERT(&ifp->if_ref_lock, LCK_ASSERT_OWNED);
++			waited_ticks += 100;
++		}
++		if (ifp->if_threads_pending != 0) {
++			printf("NABU NET: %s threads never ran (%u pending); proceeding\n",
++			    ifp->if_xname, ifp->if_threads_pending);
++		}
++	}
++#else
+ 	while (ifp->if_threads_pending != 0) {
+ 		DLIL_PRINTF("%s: Waiting for all kernel threads created for "
+ 		    "interface %s to get scheduled at least once.\n",
+@@ -9082,6 +9125,7 @@ ifnet_attach(ifnet_t ifp, const struct sockaddr_dl *ll_addr)
+ 		    __func__, NULL);
+ 		LCK_MTX_ASSERT(&ifp->if_ref_lock, LCK_ASSERT_OWNED);
+ 	}
++#endif /* NABU */
+ 	lck_mtx_unlock(&ifp->if_ref_lock);
+ 	DLIL_PRINTF("%s: All kernel threads created for interface %s have been scheduled "
+ 	    "at least once. Proceeding.\n", __func__, ifp->if_xname);
