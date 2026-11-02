@@ -1,0 +1,24 @@
+diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
+index 25de5a3..f3e1e17 100644
+--- a/bsd/kern/bsd_init.c
++++ b/bsd/kern/bsd_init.c
+@@ -879,9 +879,19 @@ bsd_init(void)
+ #endif
+ 
+ 		bsd_init_kprintf("vfs_mountroot\n");
++#if defined(NABU)
++		/* NABU: this stage is otherwise silent, and a stall here is invisible. */
++		kprintf("NABU BOOT: vfs_mountroot() enter\n");
++#endif
+ 		if (0 == (err = vfs_mountroot())) {
++#if defined(NABU)
++			kprintf("NABU BOOT: vfs_mountroot() = 0, root mounted\n");
++#endif
+ 			break;
+ 		}
++#if defined(NABU)
++		kprintf("NABU BOOT: vfs_mountroot() = %d, will retry\n", err);
++#endif
+ 		rootdevice[0] = '\0';
+ #if CONFIG_NETBOOT
+ 		if (netboot) {
