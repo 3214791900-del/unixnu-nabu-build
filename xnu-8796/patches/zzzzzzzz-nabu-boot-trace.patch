@@ -1,5 +1,5 @@
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..2eb8832 100644
+index 25de5a3..397c956 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -712,10 +712,16 @@ bsd_init(void)
@@ -99,8 +99,8 @@ index 25de5a3..2eb8832 100644
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
 +#if defined(NABU)
-+	/* NABU: skywalk_init()'s self-tests stop the boot (sk_copy64_24 was the last
-+	 * line); networking comes later, the UI bring-up does not need it. */
++	/* skywalk_init()'s self-tests stop the boot at sk_copy64_24; the UI bring-up
++	 * does not need networking. */
 +	kprintf("NABU BOOT: skywalk_init() skipped\n");
 +#else
  	(void) skywalk_init();
@@ -131,3 +131,59 @@ index 25de5a3..2eb8832 100644
  
  #if CONFIG_DTRACE
  	dtrace_postinit();
+@@ -873,15 +927,31 @@ bsd_init(void)
+ 		int err;
+ 
+ 		bsd_init_kprintf("calling setconf\n");
++#if defined(NABU)
++		kprintf("NABU BOOT: setconf() enter\n");
++#endif
+ 		setconf();
++#if defined(NABU)
++		kprintf("NABU BOOT: setconf() done, rootdevice=%s rootdev=%#x\n",
++		    rootdevice, (unsigned int)rootdev);
++#endif
+ #if CONFIG_NETBOOT
+ 		netboot = (mountroot == netboot_mountroot);
+ #endif
+ 
+ 		bsd_init_kprintf("vfs_mountroot\n");
++#if defined(NABU)
++		kprintf("NABU BOOT: vfs_mountroot() enter\n");
++#endif
+ 		if (0 == (err = vfs_mountroot())) {
++#if defined(NABU)
++			kprintf("NABU BOOT: vfs_mountroot() = 0, root mounted\n");
++#endif
+ 			break;
+ 		}
++#if defined(NABU)
++		kprintf("NABU BOOT: vfs_mountroot() = %d, will retry\n", err);
++#endif
+ 		rootdevice[0] = '\0';
+ #if CONFIG_NETBOOT
+ 		if (netboot) {
+diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
+index 578a118..49359f5 100644
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -683,10 +683,19 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
+ 	assert(matching);
+ 	matching->setObject(gIOResourceMatchedKey, gIOBSDKey);
+ 
++#if defined(NABU)
++	IOLog("NABU ROOT: IOFindBSDRoot enter\n");
++#endif
+ 	if ((service = IOService::waitForMatchingService(matching, 30ULL * kSecondScale))) {
+ 		OSSafeReleaseNULL(service);
++#if defined(NABU)
++		IOLog("NABU ROOT: IOBSD resource matched\n");
++#endif
+ 	} else {
+ 		IOLog("!BSD\n");
++#if defined(NABU)
++		IOLog("NABU ROOT: IOBSD resource NOT matched (30 s timeout)\n");
++#endif
+ 	}
+ 	matching->release();
+ 	matching = NULL;
