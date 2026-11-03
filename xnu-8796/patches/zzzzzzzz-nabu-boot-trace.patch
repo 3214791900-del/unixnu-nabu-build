@@ -243,7 +243,7 @@ index 25de5a3..96911fc 100644
  #if CONFIG_NETBOOT
  		if (netboot) {
 diff --git a/bsd/net/if_gif.c b/bsd/net/if_gif.c
-index 525f133..3ccd9b9 100644
+index 525f133..98e2002 100644
 --- a/bsd/net/if_gif.c
 +++ b/bsd/net/if_gif.c
 @@ -250,30 +250,60 @@ gif_init(void)
@@ -251,22 +251,22 @@ index 525f133..3ccd9b9 100644
  	errno_t result;
  
 +#if defined(NABU)
-+	printf("NABU GIF: gif_init enter\n");
++	kprintf("NABU GIF: gif_init enter\n");
 +#endif
  	/* Initialize the list of interfaces */
  	TAILQ_INIT(&gifs);
 +#if defined(NABU)
-+	printf("NABU GIF: TAILQ_INIT done\n");
++	kprintf("NABU GIF: TAILQ_INIT done\n");
 +#endif
  
  	/* Register protocol registration functions */
 +#if defined(NABU)
-+	printf("NABU GIF: proto_register_plumber(PF_INET) enter\n");
++	kprintf("NABU GIF: proto_register_plumber(PF_INET) enter\n");
 +#endif
  	result = proto_register_plumber(PF_INET, APPLE_IF_FAM_GIF,
  	    gif_attach_proto_family, NULL);
 +#if defined(NABU)
-+	printf("NABU GIF: proto_register_plumber(PF_INET) = %d\n", result);
++	kprintf("NABU GIF: proto_register_plumber(PF_INET) = %d\n", result);
 +#endif
  	if (result != 0) {
  		printf("proto_register_plumber failed for AF_INET error=%d\n",
@@ -274,12 +274,12 @@ index 525f133..3ccd9b9 100644
  	}
  
 +#if defined(NABU)
-+	printf("NABU GIF: proto_register_plumber(PF_INET6) enter\n");
++	kprintf("NABU GIF: proto_register_plumber(PF_INET6) enter\n");
 +#endif
  	result = proto_register_plumber(PF_INET6, APPLE_IF_FAM_GIF,
  	    gif_attach_proto_family, NULL);
 +#if defined(NABU)
-+	printf("NABU GIF: proto_register_plumber(PF_INET6) = %d\n", result);
++	kprintf("NABU GIF: proto_register_plumber(PF_INET6) = %d\n", result);
 +#endif
  	if (result != 0) {
  		printf("proto_register_plumber failed for AF_INET6 error=%d\n",
@@ -287,22 +287,22 @@ index 525f133..3ccd9b9 100644
  	}
  
 +#if defined(NABU)
-+	printf("NABU GIF: if_clone_attach enter\n");
++	kprintf("NABU GIF: if_clone_attach enter\n");
 +#endif
  	result = if_clone_attach(&gif_cloner);
 +#if defined(NABU)
-+	printf("NABU GIF: if_clone_attach = %d\n", result);
++	kprintf("NABU GIF: if_clone_attach = %d\n", result);
 +#endif
  	if (result != 0) {
  		panic("%s: if_clone_attach() failed, error %d", __func__, result);
  	}
  
 +#if defined(NABU)
-+	printf("NABU GIF: gif_clone_create enter\n");
++	kprintf("NABU GIF: gif_clone_create enter\n");
 +#endif
  	gif_clone_create(&gif_cloner, 0, NULL);
 +#if defined(NABU)
-+	printf("NABU GIF: gif_clone_create done\n");
++	kprintf("NABU GIF: gif_clone_create done\n");
 +#endif
  }
  
