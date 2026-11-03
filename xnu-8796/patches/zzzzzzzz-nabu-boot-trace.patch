@@ -308,6 +308,36 @@ index 25de5a3..5a27036 100644
  	load_init_program(p);
  	lock_trace = 1;
  }
+diff --git a/iokit/Kernel/arm/NabuFramebuffer.cpp b/iokit/Kernel/arm/NabuFramebuffer.cpp
+index 7afbd9f..70fcc67 100644
+--- a/iokit/Kernel/arm/NabuFramebuffer.cpp
++++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
+@@ -100,9 +100,24 @@ class IOMobileFramebuffer : public IOService {
+ 
+ OSDefineMetaClassAndStructors(IOMobileFramebuffer, IOService);
+ 
++#if defined(NABU)
++/*
++ * iOS names its display driver class "AppleMobileFramebuffer" and matches it by
++ * that name (IOServiceMatching uses IOProviderClass, which walks the class
++ * chain).  The panel driver used to sit directly under IOMobileFramebuffer, so
++ * anything looking for the Apple name found nothing; keep the Apple name as an
++ * empty intermediate class so both names resolve to the same nub.
++ */
++class AppleMobileFramebuffer : public IOMobileFramebuffer {
++	OSDeclareDefaultStructors(AppleMobileFramebuffer);
++};
++
++OSDefineMetaClassAndStructors(AppleMobileFramebuffer, IOMobileFramebuffer);
++#endif
++
+ class IOMobileFramebufferUserClient;
+ 
+-class AppleCLCD : public IOMobileFramebuffer {
++class AppleCLCD : public AppleMobileFramebuffer {
+ 	OSDeclareDefaultStructors(AppleCLCD);
+ 
+ 	IOWorkLoop         *fWorkLoop;
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 index 578a118..ffde9c6 100644
 --- a/iokit/bsddev/IOKitBSDInit.cpp
