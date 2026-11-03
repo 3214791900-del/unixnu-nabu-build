@@ -1,5 +1,5 @@
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..96911fc 100644
+index 25de5a3..fc343ea 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -711,11 +711,34 @@ bsd_init(void)
@@ -174,7 +174,7 @@ index 25de5a3..96911fc 100644
  #endif
  
  #if PFLOG
-@@ -828,9 +908,18 @@ bsd_init(void)
+@@ -828,6 +908,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -183,18 +183,8 @@ index 25de5a3..96911fc 100644
 +#endif
  #endif /* ETHER */
  
--#if NETWORKING
-+#if defined(NABU)
-+	/* The UI bring-up needs no networking, and this block is where the boot
-+	 * stops nondeterministically (sometimes inside gif_init, sometimes before
-+	 * the first line of the block). Skip it wholesale on NABU. */
-+	kprintf("NABU BOOT: networking block skipped\n");
-+#endif
-+#if NETWORKING && !defined(NABU)
- #if CONTENT_FILTER
- 	cfil_init();
- #endif
-@@ -863,25 +952,47 @@ bsd_init(void)
+ #if NETWORKING
+@@ -863,25 +946,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
