@@ -1,8 +1,8 @@
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..56eb285 100644
+index 25de5a3..35babbc 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,26 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,46 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -10,18 +10,38 @@ index 25de5a3..56eb285 100644
 +extern kern_return_t kernel_thread_start(thread_continue_t, void *, thread_t *);
 +
 +/*
-+ * Heartbeat: the panel is the only output channel and userland logs do not
-+ * reach it reliably, so one line every five seconds proves the kernel is still
-+ * alive after the userspace has gone quiet.
++ * Heartbeat plus a process census.  The panel is the only output channel and
++ * userland writes do not reach it reliably, so once the boot goes quiet this
++ * is the only way to tell "kernel dead" from "a service is stuck".  Every five
++ * seconds print a line; every thirtieth second also dump the process table.
 + */
 +static void
 +nabu_heartbeat(void *arg, wait_result_t result)
 +{
 +	(void)arg;
 +	(void)result;
++	int tick = 0;
++
 +	for (;;) {
-+		kprintf("NABU ALIVE\n");
 +		IOSleep(5000);
++		tick++;
++		kprintf("NABU ALIVE %d\n", tick);
++
++		if ((tick % 6) == 0) {
++			proc_t p;
++			int n = 0;
++
++			proc_list_lock();
++			LIST_FOREACH(p, &allproc, p_list) {
++				kprintf("NABU PROC: pid=%d stat=%d comm=%s\n",
++				    p->p_pid, (int)p->p_stat, p->p_comm);
++				if (++n >= 12) {
++					kprintf("NABU PROC: ... more\n");
++					break;
++				}
++			}
++			proc_list_unlock();
++		}
 +	}
 +}
 +#endif
@@ -29,7 +49,7 @@ index 25de5a3..56eb285 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +732,16 @@ bsd_init(void)
+@@ -712,10 +752,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -46,7 +66,7 @@ index 25de5a3..56eb285 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +752,47 @@ bsd_init(void)
+@@ -726,26 +772,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -94,7 +114,7 @@ index 25de5a3..56eb285 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +801,26 @@ bsd_init(void)
+@@ -754,14 +821,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -121,7 +141,7 @@ index 25de5a3..56eb285 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +828,13 @@ bsd_init(void)
+@@ -769,7 +848,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -135,7 +155,7 @@ index 25de5a3..56eb285 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +857,28 @@ bsd_init(void)
+@@ -792,16 +877,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -164,7 +184,7 @@ index 25de5a3..56eb285 100644
  #endif
  
  	/*
-@@ -812,11 +889,17 @@ bsd_init(void)
+@@ -812,11 +909,17 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -183,7 +203,7 @@ index 25de5a3..56eb285 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +911,9 @@ bsd_init(void)
+@@ -828,6 +931,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -193,7 +213,7 @@ index 25de5a3..56eb285 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +949,47 @@ bsd_init(void)
+@@ -863,25 +969,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
@@ -241,7 +261,7 @@ index 25de5a3..56eb285 100644
  		rootdevice[0] = '\0';
  #if CONFIG_NETBOOT
  		if (netboot) {
-@@ -1098,6 +1206,17 @@ bsdinit_task(void)
+@@ -1098,6 +1226,17 @@ bsdinit_task(void)
  
  	bsd_init_kprintf("bsd_do_post - done");
  
