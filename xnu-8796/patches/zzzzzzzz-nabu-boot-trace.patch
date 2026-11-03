@@ -309,7 +309,7 @@ index 25de5a3..5a27036 100644
  	lock_trace = 1;
  }
 diff --git a/iokit/Kernel/arm/NabuFramebuffer.cpp b/iokit/Kernel/arm/NabuFramebuffer.cpp
-index 7afbd9f..70fcc67 100644
+index 7afbd9f..01f3eab 100644
 --- a/iokit/Kernel/arm/NabuFramebuffer.cpp
 +++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
 @@ -100,9 +100,24 @@ class IOMobileFramebuffer : public IOService {
@@ -338,6 +338,15 @@ index 7afbd9f..70fcc67 100644
  	OSDeclareDefaultStructors(AppleCLCD);
  
  	IOWorkLoop         *fWorkLoop;
+@@ -147,7 +162,7 @@ public:
+ 	void present_fallback(void);
+ };
+ 
+-OSDefineMetaClassAndStructors(AppleCLCD, IOMobileFramebuffer);
++OSDefineMetaClassAndStructors(AppleCLCD, AppleMobileFramebuffer);
+ 
+ class IOMobileFramebufferUserClient : public IOUserClient {
+ 	OSDeclareDefaultStructors(IOMobileFramebufferUserClient);
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 index 578a118..ffde9c6 100644
 --- a/iokit/bsddev/IOKitBSDInit.cpp
