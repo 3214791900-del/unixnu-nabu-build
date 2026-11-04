@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..0c227a9 100644
+index 25de5a3..4ae1b37 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,333 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,328 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2149,15 +2149,8 @@ index 25de5a3..0c227a9 100644
 +				vm_offset_t gd = ml_io_map(0x02c91000, 0x1000);
 +
 +				if (gd != 0) {
-+					volatile uint32_t *cx = (volatile uint32_t *)(gd + 0x6c);
-+					uint32_t before = *cx;
-+
-+					*cx = 0x222001u;
-+					__asm__ volatile("dsb sy" ::: "memory");
-+					uint32_t after = *cx;
-+
-+					kprintf("NABU GPU PWR: cx gdscr %#x -> %#x\n",
-+					    before, after);
++					kprintf("NABU GPU PWR: cx gdscr %#x (read only)\n",
++					    *(volatile uint32_t *)(gd + 0x6c));
 +				} else {
 +					kprintf("NABU GPU PWR: gdsc map failed\n");
 +				}
@@ -2185,8 +2178,10 @@ index 25de5a3..0c227a9 100644
 +				uint32_t id2 = *(volatile uint32_t *)(sva + 0x28);
 +				uint32_t scr0 = *(volatile uint32_t *)(sva + 0x00);
 +
-+				kprintf("NABU SMMU REG: bind %d id0 %#x id2 %#x scr0 %#x\n",
-+				    (int)bst, id0, id2, scr0);
++				uint32_t id1 = *(volatile uint32_t *)(sva + 0x24);
++
++				kprintf("NABU SMMU REG: bind %d id0 %#x id1 %#x id2 %#x scr0 %#x\n",
++				    (int)bst, id0, id1, id2, scr0);
 +
 +				/* prove the adapter itself works before trusting any status */
 +				{
@@ -2258,7 +2253,7 @@ index 25de5a3..0c227a9 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1039,16 @@ bsd_init(void)
+@@ -712,10 +1034,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2275,7 +2270,7 @@ index 25de5a3..0c227a9 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1059,47 @@ bsd_init(void)
+@@ -726,26 +1054,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2323,7 +2318,7 @@ index 25de5a3..0c227a9 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1108,26 @@ bsd_init(void)
+@@ -754,14 +1103,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2350,7 +2345,7 @@ index 25de5a3..0c227a9 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1135,13 @@ bsd_init(void)
+@@ -769,7 +1130,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2364,7 +2359,7 @@ index 25de5a3..0c227a9 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1164,28 @@ bsd_init(void)
+@@ -792,16 +1159,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2393,7 +2388,7 @@ index 25de5a3..0c227a9 100644
  #endif
  
  	/*
-@@ -812,11 +1196,18 @@ bsd_init(void)
+@@ -812,11 +1191,18 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2413,7 +2408,7 @@ index 25de5a3..0c227a9 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1219,9 @@ bsd_init(void)
+@@ -828,6 +1214,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2423,7 +2418,7 @@ index 25de5a3..0c227a9 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1257,47 @@ bsd_init(void)
+@@ -863,25 +1252,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
