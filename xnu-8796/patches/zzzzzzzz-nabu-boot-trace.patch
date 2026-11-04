@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..0ab8e71 100644
+index 25de5a3..c6189d8 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -473,6 +473,568 @@ bsd_rooted_ramdisk(void)
@@ -2628,7 +2628,7 @@ index 25de5a3..0ab8e71 100644
  #endif
  
  	/*
-@@ -812,11 +1431,132 @@ bsd_init(void)
+@@ -812,11 +1431,131 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2738,7 +2738,6 @@ index 25de5a3..0ab8e71 100644
 +		}
 +	}
 +	{
-+	{
 +		extern kern_return_t kernel_thread_start(thread_continue_t, void *,
 +		    thread_t *);
 +		thread_t ioth = NULL;
@@ -2762,7 +2761,7 @@ index 25de5a3..0ab8e71 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1568,9 @@ bsd_init(void)
+@@ -828,6 +1567,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2772,7 +2771,7 @@ index 25de5a3..0ab8e71 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1606,47 @@ bsd_init(void)
+@@ -863,25 +1605,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
