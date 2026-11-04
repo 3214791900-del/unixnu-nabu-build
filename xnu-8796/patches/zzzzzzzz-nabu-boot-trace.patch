@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..3b17ffa 100644
+index 25de5a3..9cfad5c 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,709 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,744 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2093,6 +2093,7 @@ index 25de5a3..3b17ffa 100644
 +			extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 +			vm_offset_t gv;
 +			volatile uint32_t *itcm;
++			volatile uint32_t *dtcm;
 +			size_t at;
 +			unsigned loaded, mismatch;
 +
@@ -2104,6 +2105,7 @@ index 25de5a3..3b17ffa 100644
 +				kprintf("NABU GMU ITCM: map failed\n");
 +			} else {
 +				itcm = (volatile uint32_t *)(gv + 0x3000);
++				dtcm = (volatile uint32_t *)(gv + 0x7000);
 +				while (at + 16 <= sizeof(image)) {
 +					const uint8_t *b = image + at;
 +					uint32_t addr = (uint32_t)b[0] | (uint32_t)b[1] << 8 |
@@ -2140,6 +2142,39 @@ index 25de5a3..3b17ffa 100644
 +						}
 +						loaded += len;
 +						kprintf("NABU GMU ITCM: block %#x len %#x loaded\n",
++						    addr, len);
++					} else if (addr >= 0x40000u && addr + len <= 0x44000u) {
++						/*
++						 * a640 keeps the firmware's data segment at 0x40000 in
++						 * block addresses, which lands in the GMU's own 16K of
++						 * data memory.  Without it the firmware starts with no
++						 * data at all.
++						 */
++						p = b + 16;
++						for (off = 0; off + 4 <= len; off += 4) {
++							uint32_t w = (uint32_t)p[0];
++
++							w |= (uint32_t)p[1] << 8;
++							w |= (uint32_t)p[2] << 16;
++							w |= (uint32_t)p[3] << 24;
++							dtcm[(addr - 0x40000u + off) / 4] = w;
++							p += 4;
++						}
++						__asm__ volatile("dsb sy" ::: "memory");
++						p = b + 16;
++						for (off = 0; off + 4 <= len; off += 4) {
++							uint32_t want = (uint32_t)p[0];
++
++							want |= (uint32_t)p[1] << 8;
++							want |= (uint32_t)p[2] << 16;
++							want |= (uint32_t)p[3] << 24;
++							if (dtcm[(addr - 0x40000u + off) / 4] != want) {
++								mismatch++;
++							}
++							p += 4;
++						}
++						loaded += len;
++						kprintf("NABU GMU DTCM: block %#x len %#x loaded\n",
 +						    addr, len);
 +					}
 +					at += 16 + len;
@@ -2634,7 +2669,7 @@ index 25de5a3..3b17ffa 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1415,16 @@ bsd_init(void)
+@@ -712,10 +1450,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2651,7 +2686,7 @@ index 25de5a3..3b17ffa 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1435,47 @@ bsd_init(void)
+@@ -726,26 +1470,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2699,7 +2734,7 @@ index 25de5a3..3b17ffa 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1484,26 @@ bsd_init(void)
+@@ -754,14 +1519,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2726,7 +2761,7 @@ index 25de5a3..3b17ffa 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1511,13 @@ bsd_init(void)
+@@ -769,7 +1546,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2740,7 +2775,7 @@ index 25de5a3..3b17ffa 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1540,28 @@ bsd_init(void)
+@@ -792,16 +1575,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2769,7 +2804,7 @@ index 25de5a3..3b17ffa 100644
  #endif
  
  	/*
-@@ -812,11 +1572,82 @@ bsd_init(void)
+@@ -812,11 +1607,82 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2853,7 +2888,7 @@ index 25de5a3..3b17ffa 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1659,9 @@ bsd_init(void)
+@@ -828,6 +1694,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2863,7 +2898,7 @@ index 25de5a3..3b17ffa 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1697,51 @@ bsd_init(void)
+@@ -863,25 +1732,51 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
