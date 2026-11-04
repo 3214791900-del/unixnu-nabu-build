@@ -1,0 +1,111 @@
+--- a/bsd/skywalk/nexus/nexus_syscalls.c
++++ b/bsd/skywalk/nexus/nexus_syscalls.c
+@@ -78,11 +78,36 @@
+ 
+ 	return error;
+ }
+ 
++/*
++ * The port leaves skywalk partly initialised, and rapportd's nexus provider
++ * registration never returns -- the console stops on that line.  With
++ * nabu_nexus_off=1 every nexus syscall fails immediately so the caller can
++ * carry on instead of waiting on a stack that will not answer.
++ */
++extern int PE_parse_boot_argn(const char *, void *, int);
++
++static int
++nabu_nexus_disabled(void)
++{
++	static int cached = -1;
++
++	if (cached < 0) {
++		int off = 0;
++
++		cached = (PE_parse_boot_argn("nabu_nexus_off", &off, sizeof(off)) &&
++		    off != 0) ? 1 : 0;
++	}
++	return cached;
++}
++
+ int
+ __nexus_open(struct proc *p, struct __nexus_open_args *uap, int *retval)
+ {
++	if (nabu_nexus_disabled()) {
++		return ENOTSUP;
++	}
+ 	struct nxctl *nxctl = NULL;
+ 	struct fileproc *fp = NULL;
+ 	struct nxctl_init init;
+ 	uuid_t nxctl_uuid;
+@@ -170,8 +195,11 @@
+ int
+ __nexus_register(struct proc *p, struct __nexus_register_args *uap, int *retval)
+ {
+ #pragma unused(retval)
++	if (nabu_nexus_disabled()) {
++		return ENOTSUP;
++	}
+ 	struct fileproc *fp;
+ 	struct kern_nexus_provider *nxprov = NULL;
+ 	struct nxctl *nxctl;
+ 	struct nxprov_reg reg;
+@@ -248,8 +276,11 @@
+ __nexus_deregister(struct proc *p, struct __nexus_deregister_args *uap,
+     int *retval)
+ {
+ #pragma unused(retval)
++	if (nabu_nexus_disabled()) {
++		return ENOTSUP;
++	}
+ 	struct fileproc *fp;
+ 	struct nxctl *nxctl = NULL;
+ 	uuid_t nxprov_uuid;
+ 	int err = 0;
+@@ -293,8 +324,11 @@
+ int
+ __nexus_create(struct proc *p, struct __nexus_create_args *uap, int *retval)
+ {
+ #pragma unused(retval)
++	if (nabu_nexus_disabled()) {
++		return ENOTSUP;
++	}
+ 	struct fileproc *fp;
+ 	struct kern_nexus *nx = NULL;
+ 	struct nxctl *nxctl = NULL;
+ 	uuid_t nxprov_uuid;
+@@ -360,8 +394,11 @@
+ int
+ __nexus_destroy(struct proc *p, struct __nexus_destroy_args *uap, int *retval)
+ {
+ #pragma unused(retval)
++	if (nabu_nexus_disabled()) {
++		return ENOTSUP;
++	}
+ 	struct fileproc *fp;
+ 	struct nxctl *nxctl = NULL;
+ 	int err = 0;
+ 	uuid_t nx_uuid;
+@@ -406,8 +443,11 @@
+ int
+ __nexus_get_opt(struct proc *p, struct __nexus_get_opt_args *uap, int *retval)
+ {
+ #pragma unused(retval)
++	if (nabu_nexus_disabled()) {
++		return ENOTSUP;
++	}
+ 	struct fileproc *fp;
+ 	struct nxctl *nxctl = NULL;
+ 	struct sockopt sopt;
+ 	uint32_t optlen;
+@@ -469,8 +509,11 @@
+ int
+ __nexus_set_opt(struct proc *p, struct __nexus_set_opt_args *uap, int *retval)
+ {
+ #pragma unused(retval)
++	if (nabu_nexus_disabled()) {
++		return ENOTSUP;
++	}
+ 	struct fileproc *fp;
+ 	struct nxctl *nxctl = NULL;
+ 	struct sockopt sopt;
+ 	int err = 0;
