@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..6d81b4b 100644
+index 25de5a3..8c1c945 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -473,6 +473,751 @@ bsd_rooted_ramdisk(void)
@@ -2905,7 +2905,7 @@ index 25de5a3..6d81b4b 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1739,53 @@ bsd_init(void)
+@@ -863,25 +1739,96 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
@@ -2932,6 +2932,49 @@ index 25de5a3..6d81b4b 100644
 +#if defined(NABU)
 +		kprintf("NABU GMU LOAD SUMMARY: itcm %u dtcm %u bytes\n",
 +		    (unsigned)nabu_gmu_itcm_bytes, (unsigned)nabu_gmu_dtcm_bytes);
++	/*
++	 * The panel already shows our log, so the console's framebuffer is live.
++	 * Report where it is, then paint a band at the bottom: if the colour shows
++	 * up, iOS's own pixels can reach the screen the same way.
++	 */
++	{
++		extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++		unsigned long base = (unsigned long)PE_state.video.v_baseAddr;
++		unsigned long pitch = (unsigned long)PE_state.video.v_rowBytes;
++		unsigned long w = (unsigned long)PE_state.video.v_width;
++		unsigned long h = (unsigned long)PE_state.video.v_height;
++		unsigned long depth = (unsigned long)PE_state.video.v_depth;
++		unsigned long band;
++		unsigned long y;
++		unsigned long x;
++		vm_offset_t fb;
++		volatile uint32_t *p;
++
++		kprintf("NABU FB: base %#lx pitch %lu %lux%lu depth %lu\n",
++		    base, pitch, w, h, depth);
++		band = h / 8;
++		if (base != 0 && depth == 32 && band > 0 && pitch >= w * 4 &&
++		    w >= 100 && w <= 4096 && h >= 100 && h <= 4096 &&
++		    pitch * band <= (4u * 1024 * 1024)) {
++			fb = ml_io_map((vm_offset_t)(base + (h - band) * pitch),
++			    (vm_size_t)(pitch * band));
++			if (fb != 0) {
++				for (y = 0; y < band; y++) {
++					p = (volatile uint32_t *)(fb + y * pitch);
++					for (x = 0; x < w; x++) {
++						p[x] = 0xff00c000u;
++					}
++				}
++				__asm__ volatile("dsb sy" ::: "memory");
++				kprintf("NABU FB: painted %lu rows at y=%lu\n", band, h - band);
++			} else {
++				kprintf("NABU FB: map failed for %#lx\n", base);
++			}
++		} else {
++			kprintf("NABU FB: not painting (geometry not trusted)\n");
++		}
++	}
++
 +		kprintf("NABU M1 SUMMARY: done %u dtcm %#x -> %#x fw %#x %s\n",
 +		    (unsigned)nabu_m1_done, (unsigned)nabu_m1_dtcm_before,
 +		    (unsigned)nabu_m1_dtcm_after, (unsigned)nabu_m1_fw_result,
