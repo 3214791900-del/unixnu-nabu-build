@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..ae43b7b 100644
+index 25de5a3..14785e9 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -473,6 +473,385 @@ bsd_rooted_ramdisk(void)
@@ -2445,7 +2445,7 @@ index 25de5a3..ae43b7b 100644
  #endif
  
  	/*
-@@ -812,11 +1248,18 @@ bsd_init(void)
+@@ -812,11 +1248,46 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2453,6 +2453,34 @@ index 25de5a3..ae43b7b 100644
 +	loopattach();
 +#if defined(NABU)
 +	kprintf("NABU BOOT: after loopattach\n");
++
++	/*
++	 * Path A: the SMMU's stream routing lives behind the secure monitor on
++	 * this platform, so the first question is whether it answers this kernel
++	 * at all.  SCM_IS_CALL_AVAILABLE is the call Linux uses to find out.
++	 */
++	{
++		uint64_t fast = (1ull << 31) | (1ull << 30) | (2ull << 24);
++		uint64_t avail = (6ull << 8) | 1ull;
++		register uint64_t x0 __asm__("x0") = fast | avail;
++		register uint64_t x1 __asm__("x1") = 1;
++		register uint64_t x2 __asm__("x2") = (2ull << 24) | avail;
++		register uint64_t x3 __asm__("x3") = 0;
++		register uint64_t x4 __asm__("x4") = 0;
++		register uint64_t x5 __asm__("x5") = 0;
++		register uint64_t x6 __asm__("x6") = 0;
++
++		kprintf("NABU SCM: asking the secure monitor\n");
++		__asm__ volatile("smc #0"
++		    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x4), "+r"(x5),
++		      "+r"(x6)
++		    :
++		    : "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
++		      "x15", "x16", "x17", "memory");
++		kprintf("NABU SCM: x0 %#llx x1 %#llx\n",
++		    (unsigned long long)x0, (unsigned long long)x1);
++	}
++
 +	nabu_gmu_fw_probe();
 +#endif                   /* XXX */
  #endif
@@ -2465,7 +2493,7 @@ index 25de5a3..ae43b7b 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1271,9 @@ bsd_init(void)
+@@ -828,6 +1299,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2475,7 +2503,7 @@ index 25de5a3..ae43b7b 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1309,47 @@ bsd_init(void)
+@@ -863,25 +1337,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
