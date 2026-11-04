@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..e5f4b38 100644
+index 25de5a3..5d4bd05 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -473,6 +473,363 @@ bsd_rooted_ramdisk(void)
@@ -2208,7 +2208,7 @@ index 25de5a3..e5f4b38 100644
 +				cc.stall_on_fault = 0;
 +				cc.continue_after_fault = 0;
 +
-+				ArmSmmu4KStatus pst = ArmSmmu4KProgramDisabledContext(&io, 0, &cc,
++				ArmSmmu4KStatus pst = ArmSmmu4KProgramDisabledContext(&io, 1, &cc,
 +				    2000, &pr);
 +				kprintf("NABU SMMU REG: context0 status %d offset %#x\n",
 +				    (int)pst, (unsigned)pr.context_offset);
@@ -2267,7 +2267,7 @@ index 25de5a3..e5f4b38 100644
 +					want[1].slot = 5;
 +					want[1].sid = 5;
 +
-+					ArmSmmu4KStatus sst = ArmSmmu4KAttachStreams(&io, &ss, want, 2, 0,
++					ArmSmmu4KStatus sst = ArmSmmu4KAttachStreams(&io, &ss, want, 2, 1,
 +					    &cc, &sr);
 +					kprintf("NABU SMMU REG: streams status %d phase %u verified %u faulted %u gfault %#x\n",
 +					    (int)sst, sr.phase, sr.streams_verified, sr.streams_faulted,
