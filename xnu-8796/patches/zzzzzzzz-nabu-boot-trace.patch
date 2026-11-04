@@ -1,8 +1,8 @@
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..417be9e 100644
+index 25de5a3..79fa36c 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,96 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,149 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -93,13 +93,66 @@ index 25de5a3..417be9e 100644
 +	}
 +	kprintf("NABU GMU FW: %u block(s), %u payload bytes, highest %#x, end %#x of %#x\n",
 +	    blocks, mapped, highest, (uint32_t)off, (uint32_t)sizeof(image));
++
++	/*
++	 * Reserve one physically contiguous window wide enough for the highest
++	 * address the firmware asks for, then copy every block to its own offset.
++	 * This is the memory the GPU will later see through the SMMU; nothing is
++	 * handed to the hardware yet, so the only claim being made is that the
++	 * image fits and the copy round-trips.
++	 */
++	{
++		extern kern_return_t kmem_alloc_contig(vm_map_t, vm_offset_t *,
++		    vm_size_t, vm_offset_t, ppnum_t, ppnum_t, kma_flags_t,
++		    vm_tag_t);
++		extern vm_map_t kernel_map;
++		extern ppnum_t pmap_find_phys(pmap_t, vm_offset_t);
++		extern pmap_t kernel_pmap;
++		vm_size_t size = 0x80000;        /* 512 KB: 0x0 .. 0x7ffff */
++		vm_offset_t va = 0;
++		kern_return_t kr = kmem_alloc_contig(kernel_map, &va, size, 0, 0, 0, 0, 0);
++
++		if (kr != KERN_SUCCESS || va == 0) {
++			kprintf("NABU GMU MEM: kmem_alloc_contig failed %d\n", (int)kr);
++			return;
++		}
++
++		uint8_t *dst = (uint8_t *)va;
++		bzero(dst, size);
++		size_t copy = 0;
++		for (size_t at = 0; at + 16 <= sizeof(image);) {
++			const uint8_t *b = image + at;
++			uint32_t addr = (uint32_t)b[0] | (uint32_t)b[1] << 8 |
++			    (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24;
++			uint32_t len = (uint32_t)b[4] | (uint32_t)b[5] << 8 |
++			    (uint32_t)b[6] << 16 | (uint32_t)b[7] << 24;
++
++			if (len == 0 || (size_t)addr + len > size) {
++				break;
++			}
++			bcopy(b + 16, dst + addr, len);
++			copy += len;
++			at += 16 + len;
++		}
++
++		/* the first and last few bytes must have landed where asked */
++		uint32_t sig0 = *(uint32_t *)(dst + 0x400);
++		uint32_t sig6 = *(uint32_t *)(dst + 0x57000);
++		ppnum_t pa = pmap_find_phys(kernel_pmap, va);
++
++		kprintf("NABU GMU MEM: va %p pa %#llx size %#llx copied %u\n",
++		    (void *)va, (unsigned long long)pa << 12,
++		    (unsigned long long)size, (unsigned)copy);
++		kprintf("NABU GMU MEM: word@0x400 %#x word@0x57000 %#x\n",
++		    sig0, sig6);
++	}
 +}
 +#endif
 +
  void
  bsd_init(void)
  {
-@@ -712,10 +802,16 @@ bsd_init(void)
+@@ -712,10 +855,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -116,7 +169,7 @@ index 25de5a3..417be9e 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +822,47 @@ bsd_init(void)
+@@ -726,26 +875,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -164,7 +217,7 @@ index 25de5a3..417be9e 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +871,26 @@ bsd_init(void)
+@@ -754,14 +924,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -191,7 +244,7 @@ index 25de5a3..417be9e 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +898,13 @@ bsd_init(void)
+@@ -769,7 +951,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -205,7 +258,7 @@ index 25de5a3..417be9e 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +927,28 @@ bsd_init(void)
+@@ -792,16 +980,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -234,7 +287,7 @@ index 25de5a3..417be9e 100644
  #endif
  
  	/*
-@@ -812,11 +959,18 @@ bsd_init(void)
+@@ -812,11 +1012,18 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -254,7 +307,7 @@ index 25de5a3..417be9e 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +982,9 @@ bsd_init(void)
+@@ -828,6 +1035,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -264,7 +317,7 @@ index 25de5a3..417be9e 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1020,47 @@ bsd_init(void)
+@@ -863,25 +1073,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
