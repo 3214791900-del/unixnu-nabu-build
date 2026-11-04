@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..c28ea5b 100644
+index 25de5a3..60241e7 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -473,6 +473,487 @@ bsd_rooted_ramdisk(void)
@@ -2547,7 +2547,7 @@ index 25de5a3..c28ea5b 100644
  #endif
  
  	/*
-@@ -812,11 +1350,70 @@ bsd_init(void)
+@@ -812,11 +1350,119 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2607,6 +2607,55 @@ index 25de5a3..c28ea5b 100644
 +			    (unsigned long long)e0, (unsigned long long)e1);
 +		}
 +	}
++	{
++		/*
++		 * Route 3: a Qualcomm SMMU is sometimes mapped twice (a secure and a
++		 * non-secure view of the same registers). Scan the surrounding pages
++		 * for a second identification block and try a stream write there.
++		 */
++		extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++		vm_offset_t scan;
++		unsigned found = 0;
++		uint32_t off;
++
++		scan = ml_io_map(0x02c00000, 0x200000);
++		if (scan == 0) {
++			kprintf("NABU SMMU ALIAS: map failed\n");
++		} else {
++			for (off = 0; off < 0x200000; off += 0x1000) {
++				volatile uint32_t *p = (volatile uint32_t *)(scan + off);
++				uint32_t id0 = p[0x20 / 4];
++				uint32_t id1 = p[0x24 / 4];
++				uint32_t scr0 = p[0];
++
++				if ((id0 & 0xff) == 0 || (id0 & 0xff) > 0x20) {
++					continue;
++				}
++				if ((id1 & 0xff) == 0 || (id1 & 0xff) > 0x10) {
++					continue;
++				}
++				if ((scr0 & 0x407) != 0x406) {
++					continue;
++				}
++				found++;
++				kprintf("NABU SMMU ALIAS: %#x id0 %#x id1 %#x scr0 %#x\n",
++				    (unsigned)(0x02c00000 + off), id0, id1, scr0);
++				if (found <= 4) {
++					volatile uint32_t *s2 =
++					    (volatile uint32_t *)(scan + off + 0xc00 + 4 * 4);
++					uint32_t was = *s2;
++
++					*s2 = 0x20000u;
++					__asm__ volatile("dsb sy" ::: "memory");
++					kprintf("NABU SMMU ALIAS: write %#x -> %#x (was %#x)\n",
++					    0x20000u, *s2, was);
++					*s2 = was;
++					__asm__ volatile("dsb sy" ::: "memory");
++				}
++			}
++			kprintf("NABU SMMU ALIAS: %u candidate(s) in 2 MB\n", found);
++		}
++	}
 +	nabu_gmu_fw_probe();
 +#endif                   /* XXX */
  #endif
@@ -2619,7 +2668,7 @@ index 25de5a3..c28ea5b 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1425,9 @@ bsd_init(void)
+@@ -828,6 +1474,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2629,7 +2678,7 @@ index 25de5a3..c28ea5b 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1463,47 @@ bsd_init(void)
+@@ -863,25 +1512,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
