@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..7cdb7aa 100644
+index 25de5a3..0ab8e71 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,487 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,568 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2409,10 +2409,91 @@ index 25de5a3..7cdb7aa 100644
 +}
 +#endif
 +
++#if defined(NABU)
++/*
++ * The SCM IO-write call hangs with the layout Linux uses, and a hung SMC keeps
++ * the calling CPU for good. Run the attempts on their own thread so a hang
++ * costs one thread instead of the whole boot, and print before each attempt so
++ * the next boot replay names the layout that hung.
++ */
++static volatile unsigned nabu_scm_io_phase;
++static volatile uint64_t nabu_scm_io_rc[4];
++
++static void
++nabu_scm_io_thread(void *arg, wait_result_t wr)
++{
++	extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++	vm_offset_t sv;
++	uint64_t target;
++	uint64_t want;
++	uint32_t before;
++	unsigned combo;
++
++	(void)arg;
++	(void)wr;
++	sv = ml_io_map(0x02ca0000, 0x20000);
++	if (sv == 0) {
++		kprintf("NABU SCM IOT: map failed\n");
++		return;
++	}
++	target = 0x02ca0000ull + 0xc00ull + 16ull;
++	want = 0x20000ull;
++	before = *(volatile uint32_t *)(sv + 0xc00 + 16);
++	kprintf("NABU SCM IOT: s2cr4 starts %#x\n", before);
++
++	for (combo = 0; combo < 4; combo++) {
++		register uint64_t a0 __asm__("x0");
++		register uint64_t a1 __asm__("x1");
++		register uint64_t a2 __asm__("x2");
++		register uint64_t a3 __asm__("x3");
++		register uint64_t a4 __asm__("x4");
++		register uint64_t a5 __asm__("x5");
++		register uint64_t a6 __asm__("x6");
++		uint64_t fn = (1ull << 30) | (2ull << 24) | (1ull << 8) | 2ull;
++		uint64_t info = 2;
++
++		if (combo == 1) {
++			info = 2 | (2ull << 6);
++		} else if (combo == 2) {
++			info = 1;
++		} else if (combo == 3) {
++			fn |= (1ull << 31);
++			info = 2;
++		}
++		nabu_scm_io_phase = combo + 1;
++		kprintf("NABU SCM IOT: combo %u fn %#llx info %#llx\n",
++		    combo, (unsigned long long)fn, (unsigned long long)info);
++		a0 = fn;
++		a1 = info;
++		a2 = target;
++		a3 = want;
++		a4 = 0;
++		a5 = 0;
++		a6 = 0;
++		__asm__ volatile("smc #0"
++		    : "+r"(a0), "+r"(a1), "+r"(a2), "+r"(a3), "+r"(a4), "+r"(a5),
++		      "+r"(a6)
++		    :
++		    : "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
++		      "x15", "x16", "x17", "memory");
++		__asm__ volatile("dsb sy" ::: "memory");
++		nabu_scm_io_rc[combo] = a0;
++		kprintf("NABU SCM IOT: combo %u rc %#llx s2cr4 %#x\n", combo,
++		    (unsigned long long)a0, *(volatile uint32_t *)(sv + 0xc00 + 16));
++	}
++	nabu_scm_io_phase = 100;
++	kprintf("NABU SCM IOT: done %#x %#x %#x %#x\n",
++	    (unsigned)(nabu_scm_io_rc[0] & 0xffffffffu),
++	    (unsigned)(nabu_scm_io_rc[1] & 0xffffffffu),
++	    (unsigned)(nabu_scm_io_rc[2] & 0xffffffffu),
++	    (unsigned)(nabu_scm_io_rc[3] & 0xffffffffu));
++}
++#endif
++
  void
  bsd_init(void)
  {
-@@ -712,10 +1193,16 @@ bsd_init(void)
+@@ -712,10 +1274,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2429,7 +2510,7 @@ index 25de5a3..7cdb7aa 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1213,47 @@ bsd_init(void)
+@@ -726,26 +1294,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2477,7 +2558,7 @@ index 25de5a3..7cdb7aa 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1262,26 @@ bsd_init(void)
+@@ -754,14 +1343,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2504,7 +2585,7 @@ index 25de5a3..7cdb7aa 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1289,13 @@ bsd_init(void)
+@@ -769,7 +1370,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2518,7 +2599,7 @@ index 25de5a3..7cdb7aa 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1318,28 @@ bsd_init(void)
+@@ -792,16 +1399,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2547,7 +2628,7 @@ index 25de5a3..7cdb7aa 100644
  #endif
  
  	/*
-@@ -812,11 +1350,166 @@ bsd_init(void)
+@@ -812,11 +1431,132 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2657,50 +2738,16 @@ index 25de5a3..7cdb7aa 100644
 +		}
 +	}
 +	{
-+		/*
-+		 * The monitor now reports the IO-write service as available, so ask it
-+		 * to program the stream register we cannot write ourselves.
-+		 */
-+		extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-+		vm_offset_t sv;
-+		uint64_t target;
-+		uint64_t want;
-+		uint32_t before;
++	{
++		extern kern_return_t kernel_thread_start(thread_continue_t, void *,
++		    thread_t *);
++		thread_t ioth = NULL;
++		kern_return_t iokr;
 +
-+		sv = ml_io_map(0x02ca0000, 0x20000);
-+		if (sv == 0) {
-+			kprintf("NABU SCM IO: map failed\n");
-+		} else {
-+			volatile uint32_t *s2 = (volatile uint32_t *)(sv + 0xc00 + 4 * 4);
-+
-+			target = 0x02ca0000ull + 0xc00ull + 16ull;
-+			want = 0x20000ull;
-+			before = *s2;
-+			{
-+				register uint64_t a0 __asm__("x0") =
-+				    (1ull << 31) | (1ull << 30) | (2ull << 24) | (1ull << 8) | 2ull;
-+				register uint64_t a1 __asm__("x1") = 2;
-+				register uint64_t a2 __asm__("x2") = target;
-+				register uint64_t a3 __asm__("x3") = want;
-+				register uint64_t a4 __asm__("x4") = 0;
-+				register uint64_t a5 __asm__("x5") = 0;
-+				register uint64_t a6 __asm__("x6") = 0;
-+
-+				__asm__ volatile("smc #0"
-+				    : "+r"(a0), "+r"(a1), "+r"(a2), "+r"(a3), "+r"(a4), "+r"(a5),
-+				      "+r"(a6)
-+				    :
-+				    : "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
-+				      "x15", "x16", "x17", "memory");
-+				__asm__ volatile("dsb sy" ::: "memory");
-+				kprintf("NABU SCM IO: rc %#llx s2cr4 %#x -> %#x\n",
-+				    (unsigned long long)a0, before, *s2);
-+			}
-+			if (*s2 != before) {
-+				*s2 = before;
-+				__asm__ volatile("dsb sy" ::: "memory");
-+				kprintf("NABU SCM IO: restored %#x\n", *s2);
-+			}
++		iokr = kernel_thread_start(nabu_scm_io_thread, NULL, &ioth);
++		kprintf("NABU SCM IOT: thread start %d\n", (int)iokr);
++		if (iokr == KERN_SUCCESS && ioth != NULL) {
++			thread_deallocate(ioth);
 +		}
 +	}
 +	nabu_gmu_fw_probe();
@@ -2715,7 +2762,7 @@ index 25de5a3..7cdb7aa 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1521,9 @@ bsd_init(void)
+@@ -828,6 +1568,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2725,7 +2772,7 @@ index 25de5a3..7cdb7aa 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1559,47 @@ bsd_init(void)
+@@ -863,25 +1606,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
