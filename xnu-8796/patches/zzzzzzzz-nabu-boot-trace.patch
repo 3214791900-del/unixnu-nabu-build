@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..60241e7 100644
+index 25de5a3..7cdb7aa 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -473,6 +473,487 @@ bsd_rooted_ramdisk(void)
@@ -2547,7 +2547,7 @@ index 25de5a3..60241e7 100644
  #endif
  
  	/*
-@@ -812,11 +1350,119 @@ bsd_init(void)
+@@ -812,11 +1350,166 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2656,6 +2656,53 @@ index 25de5a3..60241e7 100644
 +			kprintf("NABU SMMU ALIAS: %u candidate(s) in 2 MB\n", found);
 +		}
 +	}
++	{
++		/*
++		 * The monitor now reports the IO-write service as available, so ask it
++		 * to program the stream register we cannot write ourselves.
++		 */
++		extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++		vm_offset_t sv;
++		uint64_t target;
++		uint64_t want;
++		uint32_t before;
++
++		sv = ml_io_map(0x02ca0000, 0x20000);
++		if (sv == 0) {
++			kprintf("NABU SCM IO: map failed\n");
++		} else {
++			volatile uint32_t *s2 = (volatile uint32_t *)(sv + 0xc00 + 4 * 4);
++
++			target = 0x02ca0000ull + 0xc00ull + 16ull;
++			want = 0x20000ull;
++			before = *s2;
++			{
++				register uint64_t a0 __asm__("x0") =
++				    (1ull << 31) | (1ull << 30) | (2ull << 24) | (1ull << 8) | 2ull;
++				register uint64_t a1 __asm__("x1") = 2;
++				register uint64_t a2 __asm__("x2") = target;
++				register uint64_t a3 __asm__("x3") = want;
++				register uint64_t a4 __asm__("x4") = 0;
++				register uint64_t a5 __asm__("x5") = 0;
++				register uint64_t a6 __asm__("x6") = 0;
++
++				__asm__ volatile("smc #0"
++				    : "+r"(a0), "+r"(a1), "+r"(a2), "+r"(a3), "+r"(a4), "+r"(a5),
++				      "+r"(a6)
++				    :
++				    : "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
++				      "x15", "x16", "x17", "memory");
++				__asm__ volatile("dsb sy" ::: "memory");
++				kprintf("NABU SCM IO: rc %#llx s2cr4 %#x -> %#x\n",
++				    (unsigned long long)a0, before, *s2);
++			}
++			if (*s2 != before) {
++				*s2 = before;
++				__asm__ volatile("dsb sy" ::: "memory");
++				kprintf("NABU SCM IO: restored %#x\n", *s2);
++			}
++		}
++	}
 +	nabu_gmu_fw_probe();
 +#endif                   /* XXX */
  #endif
@@ -2668,7 +2715,7 @@ index 25de5a3..60241e7 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1474,9 @@ bsd_init(void)
+@@ -828,6 +1521,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2678,7 +2725,7 @@ index 25de5a3..60241e7 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1512,47 @@ bsd_init(void)
+@@ -863,25 +1559,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
