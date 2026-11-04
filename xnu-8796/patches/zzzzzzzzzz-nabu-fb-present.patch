@@ -1,0 +1,41 @@
+--- a/iokit/Kernel/arm/NabuFramebuffer.cpp
++++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
+@@ -381,14 +381,36 @@
+ 	case kNabuFBGetLayerDefaultSurface:
+ 		out[0] = nabu_surface_port_in_task(fFB->fSurface, fTask);
+ 		outCount = 1;
+ 		break;
+-	case kNabuFBSwapBegin:
++	case kNabuFBSwapBegin: {
++		uint8_t rec[NABU_FB_SWAP_REC_SIZE];
++
+ 		IOLockLock(fFB->fLock);
+ 		out[0] = ++fFB->fSwapID;
+ 		IOLockUnlock(fFB->fLock);
+ 		outCount = 1;
+-		break;
++
++		/*
++		 * The window server starts frames but never submits one, so
++		 * AppleCLCD::swap() never runs.  Hand it a synthetic record for
++		 * layer 0 every fourth frame so the panel shows what has been
++		 * drawn anyway.
++		 */
++		if ((fFB->fSwapID & 3u) == 0 && fFB->fSurface != NULL &&
++		    fFB->fSurface->id != 0) {
++			bzero(rec, sizeof(rec));
++			put32(rec, 0x50, fFB->fSwapID);
++			put32(rec, 0x54, fFB->fSurface->id);
++			put32(rec, 0x104, 1u);
++			put32(rec, 0x64 + 8, fFB->fWidth);
++			put32(rec, 0x64 + 12, fFB->fHeight);
++			put32(rec, 0xc4 + 8, fFB->fWidth);
++			put32(rec, 0xc4 + 12, fFB->fHeight);
++			fFB->swap(rec);
++		}
++		break;
++	}
+ 	case kNabuFBSwapEnd: {
+ 		uint8_t rec[NABU_FB_SWAP_REC_SIZE];
+ 		if (args->structureInputDescriptor != NULL ||
+ 		    args->structureInputSize < NABU_FB_SWAP_REC_SIZE) {
