@@ -1,8 +1,8 @@
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..d3c3f9a 100644
+index 25de5a3..c6b865b 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,31 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,32 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -25,16 +25,17 @@ index 25de5a3..d3c3f9a 100644
 +		return;
 +	}
 +	r = (volatile uint32_t *)va;
-+	kprintf("NABU SMMU: %08x %08x %08x %08x | %08x %08x | %08x %08x\n",
-+	    r[0], r[1], r[2], r[3], r[0x100 / 4], r[0x200 / 4],
-+	    r[0x3000 / 4], r[0x2000 / 4]);
++	kprintf("NABU SMMU: SCR0=%08x IDR0=%08x IDR1=%08x IDR2=%08x IDR7=%08x SGFSR=%08x\n",
++	    r[0x000 / 4], r[0x020 / 4], r[0x024 / 4], r[0x028 / 4], r[0x03c / 4], r[0x048 / 4]);
++	kprintf("NABU SMMU: SMR0=%08x S2CR0=%08x SMR4=%08x S2CR4=%08x\n",
++	    r[0x800 / 4], r[0xc00 / 4], r[0x810 / 4], r[0xc10 / 4]);
 +}
 +#endif
 +
  void
  bsd_init(void)
  {
-@@ -712,10 +737,16 @@ bsd_init(void)
+@@ -712,10 +738,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -51,7 +52,7 @@ index 25de5a3..d3c3f9a 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +757,47 @@ bsd_init(void)
+@@ -726,26 +758,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -99,7 +100,7 @@ index 25de5a3..d3c3f9a 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +806,26 @@ bsd_init(void)
+@@ -754,14 +807,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -126,7 +127,7 @@ index 25de5a3..d3c3f9a 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +833,13 @@ bsd_init(void)
+@@ -769,7 +834,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -140,7 +141,7 @@ index 25de5a3..d3c3f9a 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +862,28 @@ bsd_init(void)
+@@ -792,16 +863,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -169,7 +170,7 @@ index 25de5a3..d3c3f9a 100644
  #endif
  
  	/*
-@@ -812,11 +894,18 @@ bsd_init(void)
+@@ -812,11 +895,18 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -189,7 +190,7 @@ index 25de5a3..d3c3f9a 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +917,9 @@ bsd_init(void)
+@@ -828,6 +918,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -199,7 +200,7 @@ index 25de5a3..d3c3f9a 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +955,47 @@ bsd_init(void)
+@@ -863,25 +956,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
