@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..f7b5967 100644
+index 25de5a3..c97d93c 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -195,6 +195,9 @@
@@ -3105,6 +3105,50 @@ index 25de5a3..f7b5967 100644
  #if defined(ARM64_BOARD_CONFIG_NABU)
  			/*
  			 * NABU has no chain of trust to extend: the kernel itself is
+@@ -999,6 +2013,9 @@ bsd_init(void)
+ 
+ 		bsd_init_kprintf("calling devfs_kernel_mount\n");
+ 		devfs_kernel_mount(mounthere);
++#if defined(NABU)
++		kprintf("NABU BOOT: after devfs_kernel_mount\n");
++#endif
+ 	}
+ #endif /* DEVFS */
+ 
+@@ -1041,10 +2058,19 @@ bsd_init(void)
+ 
+ 	/* Initialize signal state for process 0. */
+ 	bsd_init_kprintf("calling siginit\n");
++#if defined(NABU)
++	kprintf("NABU BOOT: after siginit\n");
++#endif
+ 	siginit(kernproc);
++#if defined(NABU)
++	kprintf("NABU BOOT: siginit done\n");
++#endif
+ 
+ 	bsd_init_kprintf("calling bsd_utaskbootstrap\n");
+ 	bsd_utaskbootstrap();
++#if defined(NABU)
++	kprintf("NABU BOOT: after bsd_utaskbootstrap\n");
++#endif
+ 
+ 	pal_kernel_announce();
+ 
+@@ -1098,7 +2124,13 @@ bsdinit_task(void)
+ 
+ 	bsd_init_kprintf("bsd_do_post - done");
+ 
++#if defined(NABU)
++	kprintf("NABU BOOT: load_init_program enter\n");
++#endif
+ 	load_init_program(p);
++#if defined(NABU)
++	kprintf("NABU BOOT: load_init_program returned\n");
++#endif
+ 	lock_trace = 1;
+ }
+ 
 diff --git a/bsd/kern/nabu_gmu_fw.h b/bsd/kern/nabu_gmu_fw.h
 new file mode 100644
 index 0000000..bf05ce2
