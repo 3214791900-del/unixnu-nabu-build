@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..96ebed6 100644
+index 25de5a3..4fd02c0 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -473,6 +473,214 @@ bsd_rooted_ramdisk(void)
@@ -2112,7 +2112,7 @@ index 25de5a3..96ebed6 100644
 +			bzero(&range, sizeof(range));
 +			bzero(&res, sizeof(res));
 +			cfg.input_bits = 32;
-+			cfg.output_bits = 32;
++			cfg.output_bits = 40;	/* the window lives above 4 GB */
 +			cfg.table_physical = tbl_pa;
 +			cfg.leaf_budget = 128;
 +
