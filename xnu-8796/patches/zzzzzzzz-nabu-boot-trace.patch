@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..14ce4be 100644
+index 25de5a3..bed3597 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -195,6 +195,9 @@
@@ -3065,6 +3065,36 @@ index 25de5a3..14ce4be 100644
  		rootdevice[0] = '\0';
  #if CONFIG_NETBOOT
  		if (netboot) {
+@@ -900,6 +1903,9 @@ bsd_init(void)
+ 	}
+ 
+ 	IOSecureBSDRoot(rootdevice);
++#if defined(NABU)
++	kprintf("NABU BOOT: after IOSecureBSDRoot\n");
++#endif
+ 
+ 	mountlist.tqh_first->mnt_flag |= MNT_ROOTFS;
+ 
+@@ -908,6 +1914,9 @@ bsd_init(void)
+ 	if (VFS_ROOT(mountlist.tqh_first, &init_rootvnode, vfs_context_kernel())) {
+ 		panic("bsd_init: cannot find root vnode: %s", PE_boot_args());
+ 	}
++#if defined(NABU)
++	kprintf("NABU BOOT: after VFS_ROOT\n");
++#endif
+ 	(void)vnode_ref(init_rootvnode);
+ 	(void)vnode_put(init_rootvnode);
+ 
+@@ -915,6 +1924,9 @@ bsd_init(void)
+ 	set_rootvnode(init_rootvnode);
+ 	lck_rw_unlock_exclusive(&rootvnode_rw_lock);
+ 	init_rootvnode = NULLVP;  /* use rootvnode after this point */
++#if defined(NABU)
++	kprintf("NABU BOOT: after set_rootvnode\n");
++#endif
+ 
+ 
+ 	if (!bsd_rooted_ramdisk()) {
 diff --git a/bsd/kern/nabu_gmu_fw.h b/bsd/kern/nabu_gmu_fw.h
 new file mode 100644
 index 0000000..bf05ce2
