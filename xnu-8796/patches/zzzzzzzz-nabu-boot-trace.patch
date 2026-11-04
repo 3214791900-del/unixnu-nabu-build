@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..f7a06c0 100644
+index 25de5a3..46fba4e 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,717 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,729 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2548,7 +2548,7 @@ index 25de5a3..f7a06c0 100644
 +	nabu_gmu_write(gmu, NABU_GMU_W(0x5185), 0x60000u);	/* HFI queue table */
 +	nabu_gmu_write(gmu, NABU_GMU_W(0x5184), 1);
 +	nabu_gmu_write(gmu, NABU_GMU_W(0x9311),
-+	    (1u << 31) | ((0xau << 2) << 18) | 0x8a0u);
++	    (1u << 31) | (0xau << 18) | 0xa0u);
 +	nabu_gmu_write(gmu, NABU_GMU_W(0x502d), 0x4052u);
 +	nabu_gmu_write(gmu, NABU_GMU_W(0x5101), 0);
 +	nabu_gmu_write(gmu, NABU_GMU_W(0x5182), 0x06030500u);	/* chip id */
@@ -2563,7 +2563,18 @@ index 25de5a3..f7a06c0 100644
 +	    gmu[NABU_GMU_W(0x502d) / 4], gmu[NABU_GMU_W(0x5001) / 4],
 +	    gmu[NABU_GMU_W(0x5000) / 4]);
 +
-+	/* 4. release the processor */
++	/* 4. release the processor, knowing what a started firmware looks like */
++	{
++		uint32_t ver = gmu[NABU_GMU_W(0x1c00 + 0xff8) / 4];
++
++		if (ver <= 0x20010004u) {
++			kprintf("NABU M1: fw version %#x, expect 0xbabeface\n", ver);
++		} else {
++			kprintf("NABU M1: fw version %#x, expect 0x100\n", ver);
++		}
++	}
++	nabu_gmu_write(gmu, NABU_GMU_W(0x5000), 1);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x5101), 0);
 +	nabu_gmu_write(gmu, NABU_GMU_W(0x5000), 0);
 +	kprintf("NABU M1: released, sysreset now %#x\n",
 +	    gmu[NABU_GMU_W(0x5000) / 4]);
@@ -2585,7 +2596,7 @@ index 25de5a3..f7a06c0 100644
 +		 */
 +		nabu_gmu_write(gmu, NABU_GMU_W(0x5000), 1);
 +		__asm__ volatile("dsb sy" ::: "memory");
-+		kprintf("NABU M1: dtcm before %#x\n", gmu[NABU_GMU_W(0x1c00) / 4]);
++		kprintf("NABU M1: skipping test program, firmware keeps its code\n");
 +		gmu[NABU_GMU_W(0x0c00) / 4] = 0x10008000u;	/* initial stack */
 +		gmu[NABU_GMU_W(0x0c01) / 4] = 0x00000009u;	/* reset vector */
 +		gmu[NABU_GMU_W(0x0c02) / 4] = 0x4801u;		/* ldr r0,[pc,#4] */
@@ -2615,12 +2626,13 @@ index 25de5a3..f7a06c0 100644
 +
 +	/* 5. wait for the firmware to say it is up */
 +	result = gmu[NABU_GMU_W(0x501c) / 4];
-+	for (i = 0; i < 5000; i++) {
-+		if ((result & 0x1ffu) == 0x100u || (result & 0xe00u) != 0) {
++	for (i = 0; i < 10000; i++) {
++		if (result == 0xbabefaceu || (result & 0x1ffu) == 0x100u ||
++		    (result & 0xe00u) != 0) {
 +			break;
 +		}
 +		__asm__ volatile("dsb sy" ::: "memory");
-+		for (unsigned long spin = 0; spin < 20000; spin++) {
++		for (unsigned long spin = 0; spin < 200000; spin++) {
 +			__asm__ volatile("" ::: "memory");
 +		}
 +		result = gmu[NABU_GMU_W(0x501c) / 4];
@@ -2642,7 +2654,7 @@ index 25de5a3..f7a06c0 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1423,16 @@ bsd_init(void)
+@@ -712,10 +1435,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2659,7 +2671,7 @@ index 25de5a3..f7a06c0 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1443,47 @@ bsd_init(void)
+@@ -726,26 +1455,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2707,7 +2719,7 @@ index 25de5a3..f7a06c0 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1492,26 @@ bsd_init(void)
+@@ -754,14 +1504,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2734,7 +2746,7 @@ index 25de5a3..f7a06c0 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1519,13 @@ bsd_init(void)
+@@ -769,7 +1531,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2748,7 +2760,7 @@ index 25de5a3..f7a06c0 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1548,28 @@ bsd_init(void)
+@@ -792,16 +1560,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2777,7 +2789,7 @@ index 25de5a3..f7a06c0 100644
  #endif
  
  	/*
-@@ -812,11 +1580,82 @@ bsd_init(void)
+@@ -812,11 +1592,82 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2861,7 +2873,7 @@ index 25de5a3..f7a06c0 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1667,9 @@ bsd_init(void)
+@@ -828,6 +1679,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2871,7 +2883,7 @@ index 25de5a3..f7a06c0 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1705,51 @@ bsd_init(void)
+@@ -863,25 +1717,51 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
