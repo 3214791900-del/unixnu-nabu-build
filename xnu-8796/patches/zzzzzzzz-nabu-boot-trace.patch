@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..7f2b58d 100644
+index 25de5a3..624abc2 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -473,6 +473,385 @@ bsd_rooted_ramdisk(void)
@@ -2445,7 +2445,7 @@ index 25de5a3..7f2b58d 100644
  #endif
  
  	/*
-@@ -812,11 +1248,83 @@ bsd_init(void)
+@@ -812,11 +1248,119 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2485,6 +2485,42 @@ index 25de5a3..7f2b58d 100644
 +		 * register we cannot write ourselves (service 1 command 2 is the
 +		 * vendor IO write used for registers in secure space).
 +		 */
++		{
++			/* ask the monitor which services it actually offers */
++			static const uint32_t svc_cmd[][2] = {
++				{ 1, 1 },   /* IO read   */
++				{ 1, 2 },   /* IO write  */
++				{ 2, 1 },   /* PAS init image        */
++				{ 2, 5 },   /* PAS auth and reset    */
++				{ 2, 6 },   /* PAS shutdown          */
++				{ 2, 7 },   /* PAS is supported      */
++			};
++
++			for (unsigned i = 0; i < sizeof(svc_cmd) / sizeof(svc_cmd[0]); i++) {
++				uint64_t fast = (1ull << 31) | (1ull << 30) | (2ull << 24);
++				uint64_t avail = (6ull << 8) | 1ull;
++				uint64_t q = (2ull << 24) |
++				    ((uint64_t)svc_cmd[i][0] << 8) | svc_cmd[i][1];
++				register uint64_t d0 __asm__("x0") = fast | avail;
++				register uint64_t d1 __asm__("x1") = 1;
++				register uint64_t d2 __asm__("x2") = q;
++				register uint64_t d3 __asm__("x3") = 0;
++				register uint64_t d4 __asm__("x4") = 0;
++				register uint64_t d5 __asm__("x5") = 0;
++				register uint64_t d6 __asm__("x6") = 0;
++
++				__asm__ volatile("smc #0"
++				    : "+r"(d0), "+r"(d1), "+r"(d2), "+r"(d3), "+r"(d4),
++				      "+r"(d5), "+r"(d6)
++				    :
++				    : "x7", "x8", "x9", "x10", "x11", "x12", "x13",
++				      "x14", "x15", "x16", "x17", "memory");
++				kprintf("NABU SCM SVC: %u/%u -> rc %#llx avail %#llx\\n",
++				    svc_cmd[i][0], svc_cmd[i][1],
++				    (unsigned long long)d0, (unsigned long long)d1);
++			}
++		}
++
 +		{
 +			extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
 +			vm_offset_t sv = ml_io_map(0x02ca0000, 0x20000);
@@ -2530,7 +2566,7 @@ index 25de5a3..7f2b58d 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1336,9 @@ bsd_init(void)
+@@ -828,6 +1372,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2540,7 +2576,7 @@ index 25de5a3..7f2b58d 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1374,47 @@ bsd_init(void)
+@@ -863,25 +1410,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
