@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..14785e9 100644
+index 25de5a3..7f2b58d 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -473,6 +473,385 @@ bsd_rooted_ramdisk(void)
@@ -2445,7 +2445,7 @@ index 25de5a3..14785e9 100644
  #endif
  
  	/*
-@@ -812,11 +1248,46 @@ bsd_init(void)
+@@ -812,11 +1248,83 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2479,6 +2479,43 @@ index 25de5a3..14785e9 100644
 +		      "x15", "x16", "x17", "memory");
 +		kprintf("NABU SCM: x0 %#llx x1 %#llx\n",
 +		    (unsigned long long)x0, (unsigned long long)x1);
++
++		/*
++		 * If the monitor can act for us, ask it to write the SMMU stream
++		 * register we cannot write ourselves (service 1 command 2 is the
++		 * vendor IO write used for registers in secure space).
++		 */
++		{
++			extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++			vm_offset_t sv = ml_io_map(0x02ca0000, 0x20000);
++
++			if (sv != 0) {
++				uint64_t target = 0x02ca0000ull + 0xc00ull + 4ull * 4ull;
++				uint64_t want = 0x20000ull;
++				uint32_t before = *(volatile uint32_t *)(sv + 0xc00 + 4 * 4);
++
++				register uint64_t c0 __asm__("x0") =
++				    (1ull << 31) | (1ull << 30) | (2ull << 24) | (1ull << 8) | 2ull;
++				register uint64_t c1 __asm__("x1") = 2;
++				register uint64_t c2 __asm__("x2") = target;
++				register uint64_t c3 __asm__("x3") = want;
++				register uint64_t c4 __asm__("x4") = 0;
++				register uint64_t c5 __asm__("x5") = 0;
++				register uint64_t c6 __asm__("x6") = 0;
++
++				__asm__ volatile("smc #0"
++				    : "+r"(c0), "+r"(c1), "+r"(c2), "+r"(c3), "+r"(c4),
++				      "+r"(c5), "+r"(c6)
++				    :
++				    : "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
++				      "x15", "x16", "x17", "memory");
++
++				__asm__ volatile("dsb sy" ::: "memory");
++				kprintf("NABU SCM: io write x0 %#llx s2cr4 %#x -> %#x\n",
++				    (unsigned long long)c0, before,
++				    *(volatile uint32_t *)(sv + 0xc00 + 4 * 4));
++			}
++		}
 +	}
 +
 +	nabu_gmu_fw_probe();
@@ -2493,7 +2530,7 @@ index 25de5a3..14785e9 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1299,9 @@ bsd_init(void)
+@@ -828,6 +1336,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2503,7 +2540,7 @@ index 25de5a3..14785e9 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1337,47 @@ bsd_init(void)
+@@ -863,25 +1374,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
