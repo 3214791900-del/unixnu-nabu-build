@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..e1155b2 100644
+index 25de5a3..9f225f7 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -195,6 +195,9 @@
@@ -1934,7 +1934,7 @@ index 25de5a3..e1155b2 100644
  #include <machine/pal_routines.h>
  #include <console/video_console.h>
  
-@@ -473,6 +476,749 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +476,758 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2635,21 +2635,30 @@ index 25de5a3..e1155b2 100644
 +	    gmu[NABU_GMU_W(0x5000) / 4]);
 +
 +	/*
-+	 * 4. do NOT release the processor yet.  With the data segment in place the
-+	 * firmware runs, and then walks into addresses our page tables do not
-+	 * cover, which resets the machine.  Verify the data first: the firmware
-+	 * keeps five version words at the very end of its data memory.
++	 * 4. let the firmware run just long enough to record where it trips, then
++	 * put it back in reset.  A stage-2 translation fault leaves the offending
++	 * address in FAR, which tells us what to map instead of guessing.
 +	 */
 +	{
 +		uint32_t v0 = gmu[NABU_GMU_W(0x1c00 + 0xff8) / 4];
-+		uint32_t v1 = gmu[NABU_GMU_W(0x1c00 + 0xff9) / 4];
-+		uint32_t v2 = gmu[NABU_GMU_W(0x1c00 + 0xffa) / 4];
-+		uint32_t v3 = gmu[NABU_GMU_W(0x1c00 + 0xffb) / 4];
-+		uint32_t v4 = gmu[NABU_GMU_W(0x1c00 + 0xffc) / 4];
++		uint32_t far_reg;
++		uint32_t fsr_reg;
++		unsigned spin;
 +
-+		kprintf("NABU M1: dtcm version words %#x %#x %#x %#x %#x\n",
-+		    v0, v1, v2, v3, v4);
-+		kprintf("NABU M1: holding the processor in reset (no launch)\n");
++		kprintf("NABU M1: dtcm version word %#x\n", v0);
++		nabu_gmu_write(gmu, NABU_GMU_W(0x5101), 0);
++		nabu_gmu_write(gmu, NABU_GMU_W(0x5000), 0);
++		kprintf("NABU M1: released for a moment\n");
++		for (spin = 0; spin < 200000; spin++) {
++			__asm__ volatile("dsb sy" ::: "memory");
++		}
++		far_reg = smmu[0x9060 / 4];
++		fsr_reg = smmu[0x9058 / 4];
++		nabu_gmu_write(gmu, NABU_GMU_W(0x5000), 1);
++		kprintf("NABU M1: cb1 fault fsr %#x far %#x (id %#x)\n",
++		    fsr_reg, far_reg, smmu[0x9000 / 4]);
++		kprintf("NABU M1: put back in reset, sysreset %#x\n",
++		    gmu[NABU_GMU_W(0x5000) / 4]);
 +	}
 +
 +	result = 0;
@@ -2684,7 +2693,7 @@ index 25de5a3..e1155b2 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1458,16 @@ bsd_init(void)
+@@ -712,10 +1467,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2701,7 +2710,7 @@ index 25de5a3..e1155b2 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1478,47 @@ bsd_init(void)
+@@ -726,26 +1487,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2749,7 +2758,7 @@ index 25de5a3..e1155b2 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1527,26 @@ bsd_init(void)
+@@ -754,14 +1536,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2776,7 +2785,7 @@ index 25de5a3..e1155b2 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1554,13 @@ bsd_init(void)
+@@ -769,7 +1563,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2790,7 +2799,7 @@ index 25de5a3..e1155b2 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1583,28 @@ bsd_init(void)
+@@ -792,16 +1592,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2819,7 +2828,7 @@ index 25de5a3..e1155b2 100644
  #endif
  
  	/*
-@@ -812,11 +1615,82 @@ bsd_init(void)
+@@ -812,11 +1624,82 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2903,7 +2912,7 @@ index 25de5a3..e1155b2 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1702,9 @@ bsd_init(void)
+@@ -828,6 +1711,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2913,7 +2922,7 @@ index 25de5a3..e1155b2 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1740,96 @@ bsd_init(void)
+@@ -863,25 +1749,96 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
