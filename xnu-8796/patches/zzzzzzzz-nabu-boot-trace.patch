@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..dbe5b1b 100644
+index 25de5a3..c28ea5b 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -473,6 +473,487 @@ bsd_rooted_ramdisk(void)
@@ -2547,7 +2547,7 @@ index 25de5a3..dbe5b1b 100644
  #endif
  
  	/*
-@@ -812,11 +1350,18 @@ bsd_init(void)
+@@ -812,11 +1350,70 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2555,6 +2555,58 @@ index 25de5a3..dbe5b1b 100644
 +	loopattach();
 +#if defined(NABU)
 +	kprintf("NABU BOOT: after loopattach\n");
++	{
++		/*
++		 * Route 2: ask the secure monitor again now that the kernel is
++		 * booted from a flashed slot instead of fastboot boot.
++		 */
++		static const unsigned svc_cmd[6][2] = {
++			{ 1, 1 }, { 1, 2 }, { 2, 1 }, { 2, 5 }, { 2, 6 }, { 2, 7 }
++		};
++		unsigned i;
++		uint64_t fast = (1ull << 31) | (1ull << 30) | (2ull << 24);
++		uint64_t avail = (6ull << 8) | 1ull;
++
++		kprintf("NABU SCM: asking the secure monitor (slot-boot)\n");
++		{
++			register uint64_t d0 __asm__("x0") = fast | avail;
++			register uint64_t d1 __asm__("x1") = 1;
++			register uint64_t d2 __asm__("x2") = (2ull << 24) | avail;
++			register uint64_t d3 __asm__("x3") = 0;
++			register uint64_t d4 __asm__("x4") = 0;
++			register uint64_t d5 __asm__("x5") = 0;
++			register uint64_t d6 __asm__("x6") = 0;
++
++			__asm__ volatile("smc #0"
++			    : "+r"(d0), "+r"(d1), "+r"(d2), "+r"(d3), "+r"(d4), "+r"(d5),
++			      "+r"(d6)
++			    :
++			    : "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
++			      "x15", "x16", "x17", "memory");
++			kprintf("NABU SCM: call-available rc %#llx avail %#llx\n",
++			    (unsigned long long)d0, (unsigned long long)d1);
++		}
++		for (i = 0; i < 6; i++) {
++			register uint64_t e0 __asm__("x0") = fast | avail;
++			register uint64_t e1 __asm__("x1") = 1;
++			register uint64_t e2 __asm__("x2") =
++			    (2ull << 24) | ((uint64_t)svc_cmd[i][0] << 8) | svc_cmd[i][1];
++			register uint64_t e3 __asm__("x3") = 0;
++			register uint64_t e4 __asm__("x4") = 0;
++			register uint64_t e5 __asm__("x5") = 0;
++			register uint64_t e6 __asm__("x6") = 0;
++
++			__asm__ volatile("smc #0"
++			    : "+r"(e0), "+r"(e1), "+r"(e2), "+r"(e3), "+r"(e4), "+r"(e5),
++			      "+r"(e6)
++			    :
++			    : "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
++			      "x15", "x16", "x17", "memory");
++			kprintf("NABU SCM SVC: %u/%u rc %#llx avail %#llx\n",
++			    svc_cmd[i][0], svc_cmd[i][1],
++			    (unsigned long long)e0, (unsigned long long)e1);
++		}
++	}
 +	nabu_gmu_fw_probe();
 +#endif                   /* XXX */
  #endif
@@ -2567,7 +2619,7 @@ index 25de5a3..dbe5b1b 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1373,9 @@ bsd_init(void)
+@@ -828,6 +1425,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2577,7 +2629,7 @@ index 25de5a3..dbe5b1b 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1411,47 @@ bsd_init(void)
+@@ -863,25 +1463,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
