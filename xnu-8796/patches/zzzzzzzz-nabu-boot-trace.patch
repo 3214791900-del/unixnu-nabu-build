@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..50c7283 100644
+index 25de5a3..8fb07f3 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,549 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,611 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2419,62 +2419,124 @@ index 25de5a3..50c7283 100644
 +static volatile unsigned nabu_scm_io_phase;
 +static volatile uint64_t nabu_scm_io_rc[4];
 +
++/*
++ * M1: point the GMU's streams at our page tables, then walk the GMU through the
++ * register sequence that releases its processor and see whether its firmware
++ * reports itself started (fw_init_result & 0x1ff == 0x100).
++ *
++ * Register offsets are word-indexed in the vendor's a6xx_gmu.xml, so each is
++ * multiplied by four. Everything runs on its own thread: a stuck register must
++ * not keep the machine from booting.
++ */
++#define NABU_GMU_BASE		0x02c6a000ull
++#define NABU_SMMU_BASE		0x02ca0000ull
++#define NABU_GMU_W(n)		(4u * (n))
++
 +static void
-+nabu_scm_io_thread(void *arg, wait_result_t wr)
++nabu_gmu_write(volatile uint32_t *gmu, uint32_t off, uint32_t val)
++{
++	gmu[off / 4] = val;
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
++static void
++nabu_gmu_start_thread(void *arg, wait_result_t wr)
 +{
 +	extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++	vm_offset_t gv;
 +	vm_offset_t sv;
-+	volatile uint32_t *smr4;
-+	volatile uint32_t *s2cr4;
-+	uint32_t smr_was;
-+	uint32_t s2cr_was;
++	volatile uint32_t *gmu;
++	volatile uint32_t *smmu;
++	uint32_t result;
++	unsigned i;
 +
 +	(void)arg;
 +	(void)wr;
-+	sv = ml_io_map(0x02ca0000, 0x10000);
-+	if (sv == 0) {
-+		kprintf("NABU SMMU W: map failed\n");
++
++	gv = ml_io_map(NABU_GMU_BASE, 0x34000);
++	sv = ml_io_map(NABU_SMMU_BASE, 0x10000);
++	if (gv == 0 || sv == 0) {
++		kprintf("NABU M1: map failed gmu %p smmu %p\n", (void *)gv, (void *)sv);
 +		return;
 +	}
-+	smr4 = (volatile uint32_t *)(sv + 0x800 + 4 * 4);
-+	s2cr4 = (volatile uint32_t *)(sv + 0xc00 + 4 * 4);
-+	smr_was = *smr4;
-+	s2cr_was = *s2cr4;
-+	kprintf("NABU SMMU W: start smr4 %#x s2cr4 %#x\n", smr_was, s2cr_was);
++	gmu = (volatile uint32_t *)gv;
++	smmu = (volatile uint32_t *)sv;
 +
-+	/*
-+	 * Qualcomm's firmware emulates this stream table: Linux documents that
-+	 * FAULT writes are ignored and BYPASS writes come back as FAULT. Test
-+	 * each encoding, including the TRANSLATE one we actually want.
-+	 */
-+	*smr4 = 0x80000004u;			/* valid | stream id 4 */
++	/* 1. route the GMU's two streams through context 1 */
++	smmu[(0x800 + 4 * 4) / 4] = 0x80000004u;
++	smmu[(0x800 + 4 * 5) / 4] = 0x80000005u;
 +	__asm__ volatile("dsb sy" ::: "memory");
-+	kprintf("NABU SMMU W: smr4 <- 0x80000004 reads %#x\n", *smr4);
++	smmu[(0xc00 + 4 * 4) / 4] = 1u;
++	smmu[(0xc00 + 4 * 5) / 4] = 1u;
++	__asm__ volatile("dsb sy" ::: "memory");
++	kprintf("NABU M1: smr4 %#x s2cr4 %#x smr5 %#x s2cr5 %#x\n",
++	    smmu[(0x800 + 4 * 4) / 4], smmu[(0xc00 + 4 * 4) / 4],
++	    smmu[(0x800 + 4 * 5) / 4], smmu[(0xc00 + 4 * 5) / 4]);
 +
-+	*s2cr4 = 0x00000001u;			/* TRANSLATE -> context 1 */
-+	__asm__ volatile("dsb sy" ::: "memory");
-+	kprintf("NABU SMMU W: s2cr4 <- 0x1 (trans cb1) reads %#x\n", *s2cr4);
++	/* 2. the processor must still be held in reset before we configure it */
++	if (gmu[NABU_GMU_W(0x5000) / 4] != 1u) {
++		kprintf("NABU M1: not in reset (%#x), stopping\n",
++		    gmu[NABU_GMU_W(0x5000) / 4]);
++		return;
++	}
 +
-+	*s2cr4 = 0x000100ffu;			/* BYPASS + cbndx 0xff */
-+	__asm__ volatile("dsb sy" ::: "memory");
-+	kprintf("NABU SMMU W: s2cr4 <- 0x100ff (bypass ff) reads %#x\n", *s2cr4);
++	/* 3. the register sequence the vendor's driver performs before releasing it */
++	nabu_gmu_write(gmu, NABU_GMU_W(0x50f1), 1);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x50f0), 1);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x51cc), 1);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x501c), 0);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x5001), 2);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x5185), 0x60000u);	/* HFI queue table */
++	nabu_gmu_write(gmu, NABU_GMU_W(0x5184), 1);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x9311),
++	    (1u << 31) | ((0xau << 2) << 18) | 0x8a0u);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x502d), 0x4052u);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x5101), 0);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x5182), 0x06030500u);	/* chip id */
++	nabu_gmu_write(gmu, NABU_GMU_W(0x5100), 0x62000u | 3u);	/* log window */
++	nabu_gmu_write(gmu, NABU_GMU_W(0x4c0f), 1);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x4c00), 1);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x4c01), 1);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x50c0), 0x09c40400u);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x50e8), 0xf11u);
++	nabu_gmu_write(gmu, NABU_GMU_W(0x5191), 0xffffffffu);
++	kprintf("NABU M1: configured, cfg %#x bootcfg %#x sysreset %#x\n",
++	    gmu[NABU_GMU_W(0x502d) / 4], gmu[NABU_GMU_W(0x5001) / 4],
++	    gmu[NABU_GMU_W(0x5000) / 4]);
 +
-+	*s2cr4 = 0x00020000u;			/* FAULT */
-+	__asm__ volatile("dsb sy" ::: "memory");
-+	kprintf("NABU SMMU W: s2cr4 <- 0x20000 (fault) reads %#x\n", *s2cr4);
++	/* 4. release the processor */
++	nabu_gmu_write(gmu, NABU_GMU_W(0x5000), 0);
++	kprintf("NABU M1: released, sysreset now %#x\n",
++	    gmu[NABU_GMU_W(0x5000) / 4]);
 +
-+	*smr4 = smr_was;
-+	*s2cr4 = s2cr_was;
-+	__asm__ volatile("dsb sy" ::: "memory");
-+	nabu_scm_io_phase = 100;
-+	kprintf("NABU SMMU W: done, restored smr4 %#x s2cr4 %#x\n", *smr4, *s2cr4);
++	/* 5. wait for the firmware to say it is up */
++	result = gmu[NABU_GMU_W(0x501c) / 4];
++	for (i = 0; i < 5000; i++) {
++		if ((result & 0x1ffu) == 0x100u || (result & 0xe00u) != 0) {
++			break;
++		}
++		__asm__ volatile("dsb sy" ::: "memory");
++		for (unsigned long spin = 0; spin < 20000; spin++) {
++			__asm__ volatile("" ::: "memory");
++		}
++		result = gmu[NABU_GMU_W(0x501c) / 4];
++	}
++	kprintf("NABU M1: fw_init_result %#x after %u polls\n", result, i);
++	kprintf("NABU M1: intr_info %#x hfi_ctrl %#x ao_host %#x\n",
++	    gmu[NABU_GMU_W(0x5192) / 4], gmu[NABU_GMU_W(0x5180) / 4],
++	    gmu[NABU_GMU_W(0x9305) / 4]);
++	if ((result & 0x1ffu) == 0x100u) {
++		kprintf("NABU M1: GMU FIRMWARE RUNS\n");
++	} else {
++		kprintf("NABU M1: GMU did not start\n");
++	}
 +}
 +#endif
 +
  void
  bsd_init(void)
  {
-@@ -712,10 +1255,16 @@ bsd_init(void)
+@@ -712,10 +1317,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2491,7 +2553,7 @@ index 25de5a3..50c7283 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1275,47 @@ bsd_init(void)
+@@ -726,26 +1337,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2539,7 +2601,7 @@ index 25de5a3..50c7283 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1324,26 @@ bsd_init(void)
+@@ -754,14 +1386,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2566,7 +2628,7 @@ index 25de5a3..50c7283 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1351,13 @@ bsd_init(void)
+@@ -769,7 +1413,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2580,7 +2642,7 @@ index 25de5a3..50c7283 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1380,28 @@ bsd_init(void)
+@@ -792,16 +1442,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2609,7 +2671,7 @@ index 25de5a3..50c7283 100644
  #endif
  
  	/*
-@@ -812,11 +1412,82 @@ bsd_init(void)
+@@ -812,11 +1474,82 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2675,8 +2737,8 @@ index 25de5a3..50c7283 100644
 +		thread_t ioth = NULL;
 +		kern_return_t iokr;
 +
-+		iokr = kernel_thread_start(nabu_scm_io_thread, NULL, &ioth);
-+		kprintf("NABU SMMU W: thread start %d\n", (int)iokr);
++		iokr = kernel_thread_start(nabu_gmu_start_thread, NULL, &ioth);
++		kprintf("NABU M1: thread start %d\n", (int)iokr);
 +		if (iokr == KERN_SUCCESS && ioth != NULL) {
 +			thread_deallocate(ioth);
 +		}
@@ -2693,7 +2755,7 @@ index 25de5a3..50c7283 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1499,9 @@ bsd_init(void)
+@@ -828,6 +1561,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2703,7 +2765,7 @@ index 25de5a3..50c7283 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1537,47 @@ bsd_init(void)
+@@ -863,25 +1599,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
