@@ -1921,16 +1921,18 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..4fd02c0 100644
+index 25de5a3..9009a75 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,214 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,284 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
 +#if defined(NABU)
 +#include "nabu_gmu_fw.h"
 +#include "../dev/smmu/ArmSmmu4K.h"
++#include "../dev/smmu/ArmSmmu4KMmio.h"
++#include "../dev/smmu/ArmSmmu4KStreams.h"
 +
 +extern vm_offset_t ml_vtophys(vm_offset_t);
 +
@@ -2131,6 +2133,74 @@ index 25de5a3..4fd02c0 100644
 +			kprintf("NABU SMMU TBL: start_level %u table_pages %u leaf_pages %u root %#llx\n",
 +			    (unsigned)res.start_level, (unsigned)res.table_pages,
 +			    (unsigned)res.leaf_pages, (unsigned long long)res.root_physical);
++
++			/* Hand the tables to context 0 and route the GMU streams to it. */
++			{
++				extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++				vm_offset_t sva = ml_io_map(0x02ca0000, 0x20000);
++
++				if (sva == 0) {
++					kprintf("NABU SMMU REG: map failed\n");
++					return;
++				}
++
++				ArmSmmu4KMmio mmio;
++				ArmSmmu4KIo io;
++				bzero(&mmio, sizeof(mmio));
++				bzero(&io, sizeof(io));
++				mmio.mapping = (volatile unsigned char *)sva;
++				mmio.bytes = 0x20000;
++
++				ArmSmmu4KStatus bst = ArmSmmu4KBindMmio(&mmio, &io);
++				uint32_t id0 = *(volatile uint32_t *)(sva + 0x20);
++				uint32_t id2 = *(volatile uint32_t *)(sva + 0x28);
++				uint32_t scr0 = *(volatile uint32_t *)(sva + 0x00);
++
++				kprintf("NABU SMMU REG: bind %d id0 %#x id2 %#x scr0 %#x\n",
++				    (int)bst, id0, id2, scr0);
++
++				ArmSmmu4KContextConfig cc;
++				ArmSmmu4KProgramResult pr;
++				bzero(&cc, sizeof(cc));
++				bzero(&pr, sizeof(pr));
++				cc.lower = &cfg;
++				cc.lower_tables = &res;
++				cc.id0 = id0;
++				cc.id2 = id2;
++				cc.asid = 1;
++				cc.coherent_walk = 0;
++				cc.stall_on_fault = 0;
++				cc.continue_after_fault = 0;
++
++				ArmSmmu4KStatus pst = ArmSmmu4KProgramDisabledContext(&io, 0, &cc,
++				    2000, &pr);
++				kprintf("NABU SMMU REG: context0 status %d\n", (int)pst);
++
++				if (pst == ArmSmmu4KSuccess) {
++					ArmSmmu4KStreamState ss;
++					ArmSmmu4KStreamResult sr;
++
++					bzero(&ss, sizeof(ss));
++					bzero(&sr, sizeof(sr));
++					ss.id0 = id0;
++					ss.scr0 = scr0;
++					ss.bank = 0;
++					ss.count = 2;
++					ss.streams[0].slot = 0;
++					ss.streams[0].sid = 4;
++					ss.streams[1].slot = 1;
++					ss.streams[1].sid = 5;
++
++					ArmSmmu4KStatus sst = ArmSmmu4KAttachStreams(&io, &ss, &sr);
++					kprintf("NABU SMMU REG: streams status %d\n", (int)sst);
++				}
++
++				kprintf("NABU SMMU REG: SMR4 %#x S2CR4 %#x SMR5 %#x S2CR5 %#x\n",
++				    *(volatile uint32_t *)(sva + 0x810),
++				    *(volatile uint32_t *)(sva + 0xc10),
++				    *(volatile uint32_t *)(sva + 0x814),
++				    *(volatile uint32_t *)(sva + 0xc14));
++			}
 +		}
 +	}
 +}
@@ -2139,7 +2209,7 @@ index 25de5a3..4fd02c0 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +920,16 @@ bsd_init(void)
+@@ -712,10 +990,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2156,7 +2226,7 @@ index 25de5a3..4fd02c0 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +940,47 @@ bsd_init(void)
+@@ -726,26 +1010,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2204,7 +2274,7 @@ index 25de5a3..4fd02c0 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +989,26 @@ bsd_init(void)
+@@ -754,14 +1059,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2231,7 +2301,7 @@ index 25de5a3..4fd02c0 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1016,13 @@ bsd_init(void)
+@@ -769,7 +1086,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2245,7 +2315,7 @@ index 25de5a3..4fd02c0 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1045,28 @@ bsd_init(void)
+@@ -792,16 +1115,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2274,7 +2344,7 @@ index 25de5a3..4fd02c0 100644
  #endif
  
  	/*
-@@ -812,11 +1077,18 @@ bsd_init(void)
+@@ -812,11 +1147,18 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2294,7 +2364,7 @@ index 25de5a3..4fd02c0 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1100,9 @@ bsd_init(void)
+@@ -828,6 +1170,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2304,7 +2374,7 @@ index 25de5a3..4fd02c0 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1138,47 @@ bsd_init(void)
+@@ -863,25 +1208,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
