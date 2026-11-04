@@ -1,8 +1,8 @@
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..963c45e 100644
+index 25de5a3..3a56a24 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,145 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,160 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -134,13 +134,28 @@ index 25de5a3..963c45e 100644
 +			at += 16 + len;
 +		}
 +
-+		/* the first and last few bytes must have landed where asked */
-+		uint32_t sig0 = *(uint32_t *)(dst + 0x400);
-+		uint32_t sig6 = *(uint32_t *)(dst + 0x57000);
++		/* verify every block byte for byte instead of sampling one word */
++		size_t bad = 0, checked = 0;
++		for (size_t at = 0; at + 16 <= sizeof(image);) {
++			const uint8_t *b = image + at;
++			uint32_t addr = (uint32_t)b[0] | (uint32_t)b[1] << 8 |
++			    (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24;
++			uint32_t len = (uint32_t)b[4] | (uint32_t)b[5] << 8 |
++			    (uint32_t)b[6] << 16 | (uint32_t)b[7] << 24;
++
++			if (len == 0 || (size_t)addr + len > size) {
++				break;
++			}
++			if (memcmp(b + 16, dst + addr, len) != 0) {
++				bad++;
++			}
++			checked += len;
++			at += 16 + len;
++		}
 +		kprintf("NABU GMU MEM: va %p size %#llx copied %u\n",
 +		    (void *)va, (unsigned long long)size, (unsigned)copy);
-+		kprintf("NABU GMU MEM: word@0x400 %#x word@0x57000 %#x\n",
-+		    sig0, sig6);
++		kprintf("NABU GMU MEM: verified %u bytes, %u block(s) differ\n",
++		    (unsigned)checked, (unsigned)bad);
 +	}
 +}
 +#endif
@@ -148,7 +163,7 @@ index 25de5a3..963c45e 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +851,16 @@ bsd_init(void)
+@@ -712,10 +866,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -165,7 +180,7 @@ index 25de5a3..963c45e 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +871,47 @@ bsd_init(void)
+@@ -726,26 +886,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -213,7 +228,7 @@ index 25de5a3..963c45e 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +920,26 @@ bsd_init(void)
+@@ -754,14 +935,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -240,7 +255,7 @@ index 25de5a3..963c45e 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +947,13 @@ bsd_init(void)
+@@ -769,7 +962,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -254,7 +269,7 @@ index 25de5a3..963c45e 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +976,28 @@ bsd_init(void)
+@@ -792,16 +991,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -283,7 +298,7 @@ index 25de5a3..963c45e 100644
  #endif
  
  	/*
-@@ -812,11 +1008,18 @@ bsd_init(void)
+@@ -812,11 +1023,18 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -303,7 +318,7 @@ index 25de5a3..963c45e 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1031,9 @@ bsd_init(void)
+@@ -828,6 +1046,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -313,7 +328,7 @@ index 25de5a3..963c45e 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1069,47 @@ bsd_init(void)
+@@ -863,25 +1084,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
