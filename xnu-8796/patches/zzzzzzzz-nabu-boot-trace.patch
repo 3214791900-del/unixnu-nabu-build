@@ -1,69 +1,8 @@
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..f52a01c 100644
+index 25de5a3..913df81 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,60 @@ bsd_rooted_ramdisk(void)
-  * of the tro_ucred field so that the uthread structure can be
-  * used like any other.
-  */
-+#if defined(NABU)
-+extern kern_return_t kernel_thread_start(thread_continue_t, void *, thread_t *);
-+
-+/*
-+ * Heartbeat plus a graphics-relevant census.  The panel is the only output
-+ * channel and userland writes do not reach it reliably, so this is the only
-+ * way to see how far the userspace has come once the boot goes quiet.
-+ *
-+ * Every five seconds print a heartbeat; every thirtieth second also report the
-+ * live process count and whether the four processes that stand between us and
-+ * a picture are running yet.
-+ */
-+static void
-+nabu_heartbeat(void *arg, wait_result_t result)
-+{
-+	(void)arg;
-+	(void)result;
-+	int tick = 0;
-+
-+	for (;;) {
-+		IOSleep(5000);
-+		tick++;
-+		kprintf("NABU ALIVE %d\n", tick);
-+
-+		if ((tick % 6) == 0) {
-+			proc_t p;
-+			int total = 0;
-+			int bb = 0, sb = 0, ws = 0, rb = 0;
-+
-+			proc_list_lock();
-+			LIST_FOREACH(p, &allproc, p_list) {
-+				total++;
-+				if (strncmp(p->p_comm, "backboardd", 10) == 0) {
-+					bb = 1;
-+				}
-+				if (strncmp(p->p_comm, "SpringBoard", 11) == 0) {
-+					sb = 1;
-+				}
-+				if (strncmp(p->p_comm, "WindowServer", 12) == 0) {
-+					ws = 1;
-+				}
-+				if (strncmp(p->p_comm, "runningboardd", 13) == 0) {
-+					rb = 1;
-+				}
-+			}
-+			proc_list_unlock();
-+
-+			kprintf("NABU CENSUS: procs=%d backboardd=%d springboard=%d windowserver=%d runningboard=%d\n",
-+			    total, bb, sb, ws, rb);
-+		}
-+	}
-+}
-+#endif
-+
- void
- bsd_init(void)
- {
-@@ -712,10 +766,16 @@ bsd_init(void)
+@@ -712,10 +712,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -80,7 +19,7 @@ index 25de5a3..f52a01c 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +786,47 @@ bsd_init(void)
+@@ -726,26 +732,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -128,7 +67,7 @@ index 25de5a3..f52a01c 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +835,26 @@ bsd_init(void)
+@@ -754,14 +781,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -155,7 +94,7 @@ index 25de5a3..f52a01c 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +862,13 @@ bsd_init(void)
+@@ -769,7 +808,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -169,7 +108,7 @@ index 25de5a3..f52a01c 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +891,28 @@ bsd_init(void)
+@@ -792,16 +837,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -198,7 +137,7 @@ index 25de5a3..f52a01c 100644
  #endif
  
  	/*
-@@ -812,11 +923,17 @@ bsd_init(void)
+@@ -812,11 +869,17 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -217,7 +156,7 @@ index 25de5a3..f52a01c 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +945,9 @@ bsd_init(void)
+@@ -828,6 +891,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -227,7 +166,7 @@ index 25de5a3..f52a01c 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +983,47 @@ bsd_init(void)
+@@ -863,25 +929,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
@@ -275,26 +214,8 @@ index 25de5a3..f52a01c 100644
  		rootdevice[0] = '\0';
  #if CONFIG_NETBOOT
  		if (netboot) {
-@@ -1098,6 +1240,17 @@ bsdinit_task(void)
- 
- 	bsd_init_kprintf("bsd_do_post - done");
- 
-+#if defined(NABU)
-+	{
-+		thread_t hb_thread = THREAD_NULL;
-+		kern_return_t hb_kr = kernel_thread_start(nabu_heartbeat, NULL, &hb_thread);
-+		if (hb_kr == KERN_SUCCESS) {
-+			thread_deallocate(hb_thread);
-+		} else {
-+			kprintf("NABU ALIVE: thread start failed %d\n", hb_kr);
-+		}
-+	}
-+#endif
- 	load_init_program(p);
- 	lock_trace = 1;
- }
 diff --git a/iokit/Kernel/arm/NabuFramebuffer.cpp b/iokit/Kernel/arm/NabuFramebuffer.cpp
-index 7afbd9f..a50fd69 100644
+index 7afbd9f..dc57673 100644
 --- a/iokit/Kernel/arm/NabuFramebuffer.cpp
 +++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
 @@ -100,9 +100,24 @@ class IOMobileFramebuffer : public IOService {
@@ -359,28 +280,59 @@ index 7afbd9f..a50fd69 100644
  	return true;
  }
  
-@@ -690,6 +712,27 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+@@ -690,6 +712,58 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
  	uint64_t out[2] = { 0, 0 };
  	uint32_t outCount = 0;
  
 +#if defined(NABU)
 +	/*
-+	 * Which framebuffer operations does userland actually ask for?  The open
-+	 * path is confirmed working (clients attach), so the remaining question is
-+	 * whether anyone ever submits a frame.  Print the first 40 calls and then
-+	 * every 200th, so a busy compositor cannot flood the console.
++	 * Dump the raw arguments of the IOMobileFramebuffer selectors this driver
++	 * does not implement yet: their scalar inputs and the first bytes of any
++	 * structure input are the only way to work out what each one expects.
++	 * Known-good selectors stay silent, and each selector is printed a bounded
++	 * number of times so a polling caller cannot flood the console.
 +	 */
 +	{
-+		static uint32_t s_calls;
-+		static uint32_t s_quiet;
++		static uint32_t s_seen[128];
++		static const uint32_t s_limit = 12;
 +
-+		if (s_calls < 40 || (s_quiet++ % 200) == 0) {
-+			kprintf("NABU FB: method %u argc=%u sc=%llu\n", selector,
-+			    (unsigned)args->scalarInputCount,
-+			    (unsigned long long)(args->scalarInputCount ?
-+			    args->scalarInput[0] : 0));
++		switch (selector) {
++		case kNabuFBGetLayerDefaultSurface:
++		case kNabuFBSwapBegin:
++		case kNabuFBSwapEnd:
++		case kNabuFBSwapWait:
++		case kNabuFBGetID:
++		case kNabuFBGetDisplaySize:
++		case kNabuFBRequestPowerChange:
++		case kNabuFBIsMainDisplay:
++		case kNabuFBGetDotPitch:
++		case kNabuFBNotifications:
++			break;
++		default: {
++			uint32_t n = selector & 127;
++
++			if (s_seen[n]++ < s_limit) {
++				const uint8_t *sp = (const uint8_t *)args->structureInput;
++				uint32_t ssz = (uint32_t)args->structureInputSize;
++
++				kprintf("NABU FB: unknown sel %u argc=%u si=%u so=%u",
++				    selector, (unsigned)args->scalarInputCount,
++				    (unsigned)ssz,
++				    (unsigned)args->scalarOutputCount);
++				for (uint32_t i = 0; i < args->scalarInputCount && i < 4; i++) {
++					kprintf(" a%u=%llu", i,
++					    (unsigned long long)args->scalarInput[i]);
++				}
++				if (sp != NULL && ssz >= 8) {
++					kprintf(" data=%02x%02x%02x%02x %02x%02x%02x%02x",
++					    sp[0], sp[1], sp[2], sp[3],
++					    sp[4], sp[5], sp[6], sp[7]);
++				}
++				kprintf("\n");
++			}
++			break;
 +		}
-+		s_calls++;
++		}
 +	}
 +#endif
 +
