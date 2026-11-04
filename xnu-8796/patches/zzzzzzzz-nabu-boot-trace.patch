@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..ae43b7b 100644
+index 25de5a3..b172397 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,385 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,422 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2156,6 +2156,43 @@ index 25de5a3..ae43b7b 100644
 +				}
 +			}
 +
++			/*
++			 * GMU liveness: the always-on counter must tick, and the
++			 * processor own data memory must accept writes. Both are
++			 * plain registers, so no SMMU is involved.
++			 */
++			{
++				extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++				vm_offset_t gv;
++				volatile uint32_t *g;
++				uint32_t c1, c2, sr, fw, was, back;
++				unsigned spin;
++
++				gv = ml_io_map(0x02c6a000, 0x34000);
++				if (gv == 0) {
++					kprintf("NABU GMU TCM: map failed\n");
++				} else {
++					g = (volatile uint32_t *)gv;
++					sr = g[0x5000];
++					fw = g[0x501c];
++					c1 = g[0x5088];
++					for (spin = 0; spin < 200000; spin++) {
++						__asm__ volatile("" ::: "memory");
++					}
++					c2 = g[0x5088];
++					was = g[0x1c00];
++					g[0x1c00] = 0x600d0001u;
++					__asm__ volatile("dsb sy" ::: "memory");
++					back = g[0x1c00];
++					g[0x1c00] = was;
++					__asm__ volatile("dsb sy" ::: "memory");
++					kprintf("NABU GMU TCM: sysreset %#x fw_init %#x aon %#x -> %#x\n",
++					    sr, fw, c1, c2);
++					kprintf("NABU GMU TCM: dtcm %#x + 0x600d0001 -> %#x\n",
++					    was, back);
++				}
++			}
++
 +			/* Hand the tables to context 0 and route the GMU streams to it. */
 +			{
 +				extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
@@ -2310,7 +2347,7 @@ index 25de5a3..ae43b7b 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1091,16 @@ bsd_init(void)
+@@ -712,10 +1128,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2327,7 +2364,7 @@ index 25de5a3..ae43b7b 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1111,47 @@ bsd_init(void)
+@@ -726,26 +1148,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2375,7 +2412,7 @@ index 25de5a3..ae43b7b 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1160,26 @@ bsd_init(void)
+@@ -754,14 +1197,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2402,7 +2439,7 @@ index 25de5a3..ae43b7b 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1187,13 @@ bsd_init(void)
+@@ -769,7 +1224,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2416,7 +2453,7 @@ index 25de5a3..ae43b7b 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1216,28 @@ bsd_init(void)
+@@ -792,16 +1253,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2445,7 +2482,7 @@ index 25de5a3..ae43b7b 100644
  #endif
  
  	/*
-@@ -812,11 +1248,18 @@ bsd_init(void)
+@@ -812,11 +1285,18 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2465,7 +2502,7 @@ index 25de5a3..ae43b7b 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1271,9 @@ bsd_init(void)
+@@ -828,6 +1308,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2475,7 +2512,7 @@ index 25de5a3..ae43b7b 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1309,47 @@ bsd_init(void)
+@@ -863,25 +1346,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
