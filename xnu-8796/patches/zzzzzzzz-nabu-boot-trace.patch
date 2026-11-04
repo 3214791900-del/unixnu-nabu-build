@@ -1,14 +1,13 @@
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..5a27036 100644
+index 25de5a3..f52a01c 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,62 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,60 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
 +#if defined(NABU)
 +extern kern_return_t kernel_thread_start(thread_continue_t, void *, thread_t *);
-+extern void nabu_dump_gfx_services(void);
 +
 +/*
 + * Heartbeat plus a graphics-relevant census.  The panel is the only output
@@ -56,7 +55,6 @@ index 25de5a3..5a27036 100644
 +
 +			kprintf("NABU CENSUS: procs=%d backboardd=%d springboard=%d windowserver=%d runningboard=%d\n",
 +			    total, bb, sb, ws, rb);
-+			nabu_dump_gfx_services();
 +		}
 +	}
 +}
@@ -65,7 +63,7 @@ index 25de5a3..5a27036 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +768,16 @@ bsd_init(void)
+@@ -712,10 +766,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -82,7 +80,7 @@ index 25de5a3..5a27036 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +788,47 @@ bsd_init(void)
+@@ -726,26 +786,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -130,7 +128,7 @@ index 25de5a3..5a27036 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +837,26 @@ bsd_init(void)
+@@ -754,14 +835,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -157,7 +155,7 @@ index 25de5a3..5a27036 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +864,13 @@ bsd_init(void)
+@@ -769,7 +862,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -171,7 +169,7 @@ index 25de5a3..5a27036 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +893,28 @@ bsd_init(void)
+@@ -792,16 +891,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -200,7 +198,7 @@ index 25de5a3..5a27036 100644
  #endif
  
  	/*
-@@ -812,11 +925,17 @@ bsd_init(void)
+@@ -812,11 +923,17 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -219,7 +217,7 @@ index 25de5a3..5a27036 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +947,9 @@ bsd_init(void)
+@@ -828,6 +945,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -229,7 +227,7 @@ index 25de5a3..5a27036 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +985,47 @@ bsd_init(void)
+@@ -863,25 +983,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
@@ -277,7 +275,7 @@ index 25de5a3..5a27036 100644
  		rootdevice[0] = '\0';
  #if CONFIG_NETBOOT
  		if (netboot) {
-@@ -1098,6 +1242,17 @@ bsdinit_task(void)
+@@ -1098,6 +1240,17 @@ bsdinit_task(void)
  
  	bsd_init_kprintf("bsd_do_post - done");
  
@@ -296,7 +294,7 @@ index 25de5a3..5a27036 100644
  	lock_trace = 1;
  }
 diff --git a/iokit/Kernel/arm/NabuFramebuffer.cpp b/iokit/Kernel/arm/NabuFramebuffer.cpp
-index 7afbd9f..b3b33cf 100644
+index 7afbd9f..a50fd69 100644
 --- a/iokit/Kernel/arm/NabuFramebuffer.cpp
 +++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
 @@ -100,9 +100,24 @@ class IOMobileFramebuffer : public IOService {
@@ -361,56 +359,39 @@ index 7afbd9f..b3b33cf 100644
  	return true;
  }
  
-diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
-index 578a118..ffde9c6 100644
---- a/iokit/bsddev/IOKitBSDInit.cpp
-+++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -128,6 +128,44 @@ IOServicePublishResource( const char * property, boolean_t value )
- 	}
- }
+@@ -690,6 +712,27 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 	uint64_t out[2] = { 0, 0 };
+ 	uint32_t outCount = 0;
  
 +#if defined(NABU)
-+/*
-+ * Which of the services a graphics stack needs actually exist in the registry?
-+ * The userland goes quiet once the boot finishes, so the kernel has to answer
-+ * this: backboardd can only draw if it finds a framebuffer and an accelerator.
-+ */
-+extern "C" void nabu_dump_gfx_services(void);
++	/*
++	 * Which framebuffer operations does userland actually ask for?  The open
++	 * path is confirmed working (clients attach), so the remaining question is
++	 * whether anyone ever submits a frame.  Print the first 40 calls and then
++	 * every 200th, so a busy compositor cannot flood the console.
++	 */
++	{
++		static uint32_t s_calls;
++		static uint32_t s_quiet;
 +
-+void
-+nabu_dump_gfx_services(void)
-+{
-+	static const char *const names[] = {
-+		"AGXAccelerator",
-+		"AGXAcceleratorG9",
-+		"AppleMobileFramebuffer",
-+		"IOMobileFramebuffer",
-+		"IOCoreSurfaceRoot",
-+		"AppleCLCD",
-+	};
-+
-+	for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-+		OSDictionary *dict = IOService::serviceMatching(names[i]);
-+		IOService *match = NULL;
-+
-+		if (dict) {
-+			match = IOService::waitForMatchingService(dict, 100ULL * 1000 * 1000);
-+			dict->release();
++		if (s_calls < 40 || (s_quiet++ % 200) == 0) {
++			kprintf("NABU FB: method %u argc=%u sc=%llu\n", selector,
++			    (unsigned)args->scalarInputCount,
++			    (unsigned long long)(args->scalarInputCount ?
++			    args->scalarInput[0] : 0));
 +		}
-+		if (match) {
-+			kprintf("NABU GFX: %s present open=%d\n", names[i], (int)match->isOpen(NULL));
-+			match->release();
-+		} else {
-+			kprintf("NABU GFX: %s absent\n", names[i]);
-+		}
++		s_calls++;
 +	}
-+}
 +#endif
 +
- boolean_t
- IOServiceWaitForMatchingResource( const char * property, uint64_t timeout )
- {
-@@ -683,10 +721,19 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
+ 	switch (selector) {
+ 	case kNabuFBGetLayerDefaultSurface:
+ 		out[0] = nabu_surface_port_in_task(fFB->fSurface, fTask);
+diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
+index 578a118..49359f5 100644
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -683,10 +683,19 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
  	assert(matching);
  	matching->setObject(gIOResourceMatchedKey, gIOBSDKey);
  
