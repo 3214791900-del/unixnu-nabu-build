@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..46fba4e 100644
+index 25de5a3..3b17ffa 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,729 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,709 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2484,6 +2484,30 @@ index 25de5a3..46fba4e 100644
 +		    (gd != 0) ? *(volatile uint32_t *)(gd + 0x6c) : 0xdeadbeefu);
 +	}
 +
++	/*
++	 * The GMU's processor needs its own clock branch (gpu_cc_cx_gmu_clk at
++	 * GPUCC + 0x1098).  If it is off, nothing written into its code memory
++	 * will ever execute, which is exactly what the test program showed.
++	 */
++	{
++		extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++		vm_offset_t cc = ml_io_map(0x02c90000, 0x9000);
++		uint32_t cbcr;
++
++		if (cc != 0) {
++			cbcr = *(volatile uint32_t *)(cc + 0x1098);
++			kprintf("NABU M1: gmu clk cbcr %#x\n", cbcr);
++			if ((cbcr & 1u) == 0) {
++				*(volatile uint32_t *)(cc + 0x1098) = cbcr | 1u;
++				__asm__ volatile("dsb sy" ::: "memory");
++				kprintf("NABU M1: gmu clk enabled -> %#x\n",
++				    *(volatile uint32_t *)(cc + 0x1098));
++			}
++		}
++		kprintf("NABU M1: pwr_clk %#x (bit6 no power, bit7 no clock)\n",
++		    gmu[NABU_GMU_W(0x50d0) / 4]);
++	}
++
 +	/* is the GPU still powered, and did context 1 take a fault? */
 +	{
 +		extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
@@ -2579,50 +2603,6 @@ index 25de5a3..46fba4e 100644
 +	kprintf("NABU M1: released, sysreset now %#x\n",
 +	    gmu[NABU_GMU_W(0x5000) / 4]);
 +
-+	/*
-+	 * 4b. Hand the processor a tiny program and see whether it runs it:
-+	 *    vector table (stack, reset), then a loop that increments a word of
-+	 *    its own data memory.  If that word moves, the GMU executes our code.
-+	 */
-+	{
-+		uint32_t before;
-+		uint32_t after;
-+		unsigned t;
-+
-+		/*
-+		 * Hold the processor again and put our program in place *before*
-+		 * letting it run: releasing it with the half-loaded firmware in
-+		 * memory is what made the machine reboot in a loop.
-+		 */
-+		nabu_gmu_write(gmu, NABU_GMU_W(0x5000), 1);
-+		__asm__ volatile("dsb sy" ::: "memory");
-+		kprintf("NABU M1: skipping test program, firmware keeps its code\n");
-+		gmu[NABU_GMU_W(0x0c00) / 4] = 0x10008000u;	/* initial stack */
-+		gmu[NABU_GMU_W(0x0c01) / 4] = 0x00000009u;	/* reset vector */
-+		gmu[NABU_GMU_W(0x0c02) / 4] = 0x4801u;		/* ldr r0,[pc,#4] */
-+		gmu[NABU_GMU_W(0x0c03) / 4] = 0x6801u;		/* ldr r1,[r0] */
-+		gmu[NABU_GMU_W(0x0c04) / 4] = 0x3101u;		/* adds r1,#1 */
-+		gmu[NABU_GMU_W(0x0c05) / 4] = 0x6001u;		/* str r1,[r0] */
-+		gmu[NABU_GMU_W(0x0c06) / 4] = 0x10004000u;	/* dtcm base */
-+		gmu[NABU_GMU_W(0x0c07) / 4] = 0xe7f8u;		/* b back */
-+		__asm__ volatile("dsb sy" ::: "memory");
-+		kprintf("NABU M1: itcm wrote %#x %#x %#x %#x\n",
-+		    gmu[NABU_GMU_W(0x0c00) / 4], gmu[NABU_GMU_W(0x0c01) / 4],
-+		    gmu[NABU_GMU_W(0x0c02) / 4], gmu[NABU_GMU_W(0x0c07) / 4]);
-+		before = gmu[NABU_GMU_W(0x1c00) / 4];
-+		nabu_gmu_write(gmu, NABU_GMU_W(0x5000), 0);
-+		for (t = 0; t < 2000; t++) {
-+			__asm__ volatile("dsb sy" ::: "memory");
-+			for (unsigned long spin = 0; spin < 20000; spin++) {
-+				__asm__ volatile("" ::: "memory");
-+			}
-+		}
-+		after = gmu[NABU_GMU_W(0x1c00) / 4];
-+		nabu_m1_dtcm_before = before;
-+		nabu_m1_dtcm_after = after;
-+		kprintf("NABU M1: dtcm %#x -> %#x  (%s)\n", before, after,
-+		    (after != before) ? "PROCESSOR RAN OUR CODE" : "no change");
-+	}
 +
 +	/* 5. wait for the firmware to say it is up */
 +	result = gmu[NABU_GMU_W(0x501c) / 4];
@@ -2654,7 +2634,7 @@ index 25de5a3..46fba4e 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1435,16 @@ bsd_init(void)
+@@ -712,10 +1415,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2671,7 +2651,7 @@ index 25de5a3..46fba4e 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1455,47 @@ bsd_init(void)
+@@ -726,26 +1435,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2719,7 +2699,7 @@ index 25de5a3..46fba4e 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1504,26 @@ bsd_init(void)
+@@ -754,14 +1484,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2746,7 +2726,7 @@ index 25de5a3..46fba4e 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1531,13 @@ bsd_init(void)
+@@ -769,7 +1511,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2760,7 +2740,7 @@ index 25de5a3..46fba4e 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1560,28 @@ bsd_init(void)
+@@ -792,16 +1540,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2789,7 +2769,7 @@ index 25de5a3..46fba4e 100644
  #endif
  
  	/*
-@@ -812,11 +1592,82 @@ bsd_init(void)
+@@ -812,11 +1572,82 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2873,7 +2853,7 @@ index 25de5a3..46fba4e 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1679,9 @@ bsd_init(void)
+@@ -828,6 +1659,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2883,7 +2863,7 @@ index 25de5a3..46fba4e 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1717,51 @@ bsd_init(void)
+@@ -863,25 +1697,51 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
