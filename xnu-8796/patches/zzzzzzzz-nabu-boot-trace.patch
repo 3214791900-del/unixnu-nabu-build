@@ -215,45 +215,10 @@ index 25de5a3..913df81 100644
  #if CONFIG_NETBOOT
  		if (netboot) {
 diff --git a/iokit/Kernel/arm/NabuFramebuffer.cpp b/iokit/Kernel/arm/NabuFramebuffer.cpp
-index 7afbd9f..dc57673 100644
+index 7afbd9f..e4c4a80 100644
 --- a/iokit/Kernel/arm/NabuFramebuffer.cpp
 +++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
-@@ -100,9 +100,24 @@ class IOMobileFramebuffer : public IOService {
- 
- OSDefineMetaClassAndStructors(IOMobileFramebuffer, IOService);
- 
-+#if defined(NABU)
-+/*
-+ * iOS names its display driver class "AppleMobileFramebuffer" and matches it by
-+ * that name (IOServiceMatching uses IOProviderClass, which walks the class
-+ * chain).  The panel driver used to sit directly under IOMobileFramebuffer, so
-+ * anything looking for the Apple name found nothing; keep the Apple name as an
-+ * empty intermediate class so both names resolve to the same nub.
-+ */
-+class AppleMobileFramebuffer : public IOMobileFramebuffer {
-+	OSDeclareDefaultStructors(AppleMobileFramebuffer);
-+};
-+
-+OSDefineMetaClassAndStructors(AppleMobileFramebuffer, IOMobileFramebuffer);
-+#endif
-+
- class IOMobileFramebufferUserClient;
- 
--class AppleCLCD : public IOMobileFramebuffer {
-+class AppleCLCD : public AppleMobileFramebuffer {
- 	OSDeclareDefaultStructors(AppleCLCD);
- 
- 	IOWorkLoop         *fWorkLoop;
-@@ -147,7 +162,7 @@ public:
- 	void present_fallback(void);
- };
- 
--OSDefineMetaClassAndStructors(AppleCLCD, IOMobileFramebuffer);
-+OSDefineMetaClassAndStructors(AppleCLCD, AppleMobileFramebuffer);
- 
- class IOMobileFramebufferUserClient : public IOUserClient {
- 	OSDeclareDefaultStructors(IOMobileFramebufferUserClient);
-@@ -615,9 +630,13 @@ bool
+@@ -615,9 +615,13 @@ bool
  IOMobileFramebufferUserClient::initWithTask(task_t owningTask, void *securityID, UInt32 type)
  {
  	if (!IOUserClient::initWithTask(owningTask, securityID, type)) {
@@ -267,7 +232,7 @@ index 7afbd9f..dc57673 100644
  	return true;
  }
  
-@@ -626,9 +645,12 @@ IOMobileFramebufferUserClient::start(IOService *provider)
+@@ -626,9 +630,12 @@ IOMobileFramebufferUserClient::start(IOService *provider)
  {
  	fFB = OSDynamicCast(AppleCLCD, provider);
  	if (fFB == NULL || !IOUserClient::start(provider)) {
@@ -280,65 +245,82 @@ index 7afbd9f..dc57673 100644
  	return true;
  }
  
-@@ -690,6 +712,58 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+@@ -690,6 +697,27 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
  	uint64_t out[2] = { 0, 0 };
  	uint32_t outCount = 0;
  
 +#if defined(NABU)
 +	/*
-+	 * Dump the raw arguments of the IOMobileFramebuffer selectors this driver
-+	 * does not implement yet: their scalar inputs and the first bytes of any
-+	 * structure input are the only way to work out what each one expects.
-+	 * Known-good selectors stay silent, and each selector is printed a bounded
-+	 * number of times so a polling caller cannot flood the console.
++	 * Which framebuffer operations does userland actually ask for?  The open
++	 * path is confirmed working (clients attach), so the remaining question is
++	 * whether anyone ever submits a frame.  Print the first 40 calls and then
++	 * every 200th, so a busy compositor cannot flood the console.
 +	 */
 +	{
-+		static uint32_t s_seen[128];
-+		static const uint32_t s_limit = 12;
++		static uint32_t s_calls;
++		static uint32_t s_quiet;
 +
-+		switch (selector) {
-+		case kNabuFBGetLayerDefaultSurface:
-+		case kNabuFBSwapBegin:
-+		case kNabuFBSwapEnd:
-+		case kNabuFBSwapWait:
-+		case kNabuFBGetID:
-+		case kNabuFBGetDisplaySize:
-+		case kNabuFBRequestPowerChange:
-+		case kNabuFBIsMainDisplay:
-+		case kNabuFBGetDotPitch:
-+		case kNabuFBNotifications:
-+			break;
-+		default: {
-+			uint32_t n = selector & 127;
-+
-+			if (s_seen[n]++ < s_limit) {
-+				const uint8_t *sp = (const uint8_t *)args->structureInput;
-+				uint32_t ssz = (uint32_t)args->structureInputSize;
-+
-+				kprintf("NABU FB: unknown sel %u argc=%u si=%u so=%u",
-+				    selector, (unsigned)args->scalarInputCount,
-+				    (unsigned)ssz,
-+				    (unsigned)args->scalarOutputCount);
-+				for (uint32_t i = 0; i < args->scalarInputCount && i < 4; i++) {
-+					kprintf(" a%u=%llu", i,
-+					    (unsigned long long)args->scalarInput[i]);
-+				}
-+				if (sp != NULL && ssz >= 8) {
-+					kprintf(" data=%02x%02x%02x%02x %02x%02x%02x%02x",
-+					    sp[0], sp[1], sp[2], sp[3],
-+					    sp[4], sp[5], sp[6], sp[7]);
-+				}
-+				kprintf("\n");
-+			}
-+			break;
++		if (s_calls < 40 || (s_quiet++ % 200) == 0) {
++			kprintf("NABU FB: method %u argc=%u sc=%llu\n", selector,
++			    (unsigned)args->scalarInputCount,
++			    (unsigned long long)(args->scalarInputCount ?
++			    args->scalarInput[0] : 0));
 +		}
-+		}
++		s_calls++;
 +	}
 +#endif
 +
  	switch (selector) {
  	case kNabuFBGetLayerDefaultSurface:
  		out[0] = nabu_surface_port_in_task(fFB->fSurface, fTask);
+@@ -760,6 +788,37 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 		}
+ 		break;
+ 	case kNabuFBSwapWait:
++		break;
++
++	case 79: {	/* GetBlock: the current display mode (colour + timing IDs) */
++		if (args->scalarInputCount >= 1 && args->scalarInput[0] == 0x40 &&
++		    args->structureOutput != NULL && args->structureOutputSize >= 12) {
++			uint32_t ids[2] = { 1, 1 };
++
++			bzero(args->structureOutput, args->structureOutputSize);
++			memcpy((uint8_t *)args->structureOutput + 4, ids, sizeof(ids));
++		}
++		break;
++	}
++	case 74:	/* SupportedFrameInfo: none */
++		out[0] = 0;
++		outCount = 1;
++		break;
++	case 77:	/* GetCurrentAbsoluteTime */
++		out[0] = mach_absolute_time();
++		outCount = 1;
++		break;
++	case 57:	/* GetColorRemapMode */
++		out[0] = 0;
++		outCount = 1;
++		break;
++	case 20:	/* SwapSignal */
++	case 52:	/* SwapCancel */
++	case 73:	/* ChangeFrameInfo */
++	case 81:	/* SwapCancelAll */
++	case 82:	/* GetProtectionOptions (no output expected) */
++		break;
++
+ 	default:
+ 		break;
+ 	}
+@@ -767,7 +826,8 @@ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMetho
+ 	for (uint32_t i = 0; i < args->scalarOutputCount; i++) {
+ 		args->scalarOutput[i] = i < outCount ? out[i] : 0;
+ 	}
+-	if (args->structureOutputDescriptor == NULL && args->structureOutput != NULL) {
++	if (selector != 79 /* GetBlock fills it above */ &&
++	    args->structureOutputDescriptor == NULL && args->structureOutput != NULL) {
+ 		bzero(args->structureOutput, args->structureOutputSize);
+ 	}
+ 	if (selector >= 64 || !(nabu_fb_logged & (1ULL << selector))) {
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
 index 578a118..49359f5 100644
 --- a/iokit/bsddev/IOKitBSDInit.cpp
