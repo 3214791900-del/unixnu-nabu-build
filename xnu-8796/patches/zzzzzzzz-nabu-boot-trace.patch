@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..a7249e9 100644
+index 25de5a3..6d81b4b 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,748 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,751 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2626,24 +2626,27 @@ index 25de5a3..a7249e9 100644
 +	    gmu[NABU_GMU_W(0x502d) / 4], gmu[NABU_GMU_W(0x5001) / 4],
 +	    gmu[NABU_GMU_W(0x5000) / 4]);
 +
-+	/* 4. release the processor, knowing what a started firmware looks like */
++	/*
++	 * 4. do NOT release the processor yet.  With the data segment in place the
++	 * firmware runs, and then walks into addresses our page tables do not
++	 * cover, which resets the machine.  Verify the data first: the firmware
++	 * keeps five version words at the very end of its data memory.
++	 */
 +	{
-+		uint32_t ver = gmu[NABU_GMU_W(0x1c00 + 0xff8) / 4];
++		uint32_t v0 = gmu[NABU_GMU_W(0x1c00 + 0xff8) / 4];
++		uint32_t v1 = gmu[NABU_GMU_W(0x1c00 + 0xff9) / 4];
++		uint32_t v2 = gmu[NABU_GMU_W(0x1c00 + 0xffa) / 4];
++		uint32_t v3 = gmu[NABU_GMU_W(0x1c00 + 0xffb) / 4];
++		uint32_t v4 = gmu[NABU_GMU_W(0x1c00 + 0xffc) / 4];
 +
-+		if (ver <= 0x20010004u) {
-+			kprintf("NABU M1: fw version %#x, expect 0xbabeface\n", ver);
-+		} else {
-+			kprintf("NABU M1: fw version %#x, expect 0x100\n", ver);
-+		}
++		kprintf("NABU M1: dtcm version words %#x %#x %#x %#x %#x\n",
++		    v0, v1, v2, v3, v4);
++		kprintf("NABU M1: holding the processor in reset (no launch)\n");
 +	}
-+	nabu_gmu_write(gmu, NABU_GMU_W(0x5000), 1);
-+	nabu_gmu_write(gmu, NABU_GMU_W(0x5101), 0);
-+	nabu_gmu_write(gmu, NABU_GMU_W(0x5000), 0);
-+	kprintf("NABU M1: released, sysreset now %#x\n",
-+	    gmu[NABU_GMU_W(0x5000) / 4]);
 +
-+
-+	/* 5. wait for the firmware to say it is up */
++	result = 0;
++	i = 0;
++/* 5. wait for the firmware to say it is up */
 +	result = gmu[NABU_GMU_W(0x501c) / 4];
 +	for (i = 0; i < 10000; i++) {
 +		if (result == 0xbabefaceu || (result & 0x1ffu) == 0x100u ||
@@ -2673,7 +2676,7 @@ index 25de5a3..a7249e9 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1454,16 @@ bsd_init(void)
+@@ -712,10 +1457,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2690,7 +2693,7 @@ index 25de5a3..a7249e9 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1474,47 @@ bsd_init(void)
+@@ -726,26 +1477,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2738,7 +2741,7 @@ index 25de5a3..a7249e9 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1523,26 @@ bsd_init(void)
+@@ -754,14 +1526,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2765,7 +2768,7 @@ index 25de5a3..a7249e9 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1550,13 @@ bsd_init(void)
+@@ -769,7 +1553,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2779,7 +2782,7 @@ index 25de5a3..a7249e9 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1579,28 @@ bsd_init(void)
+@@ -792,16 +1582,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2808,7 +2811,7 @@ index 25de5a3..a7249e9 100644
  #endif
  
  	/*
-@@ -812,11 +1611,82 @@ bsd_init(void)
+@@ -812,11 +1614,82 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2892,7 +2895,7 @@ index 25de5a3..a7249e9 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1698,9 @@ bsd_init(void)
+@@ -828,6 +1701,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2902,7 +2905,7 @@ index 25de5a3..a7249e9 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1736,53 @@ bsd_init(void)
+@@ -863,25 +1739,53 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
