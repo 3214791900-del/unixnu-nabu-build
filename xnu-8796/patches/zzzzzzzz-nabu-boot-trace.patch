@@ -1921,15 +1921,18 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..3a56a24 100644
+index 25de5a3..96ebed6 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,160 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,214 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
 +#if defined(NABU)
 +#include "nabu_gmu_fw.h"
++#include "../dev/smmu/ArmSmmu4K.h"
++
++extern vm_offset_t ml_vtophys(vm_offset_t);
 +
 +/*
 + * Adreno 640 GMU microcode: decode, then plan the load the same way
@@ -2078,6 +2081,57 @@ index 25de5a3..3a56a24 100644
 +		    (void *)va, (unsigned long long)size, (unsigned)copy);
 +		kprintf("NABU GMU MEM: verified %u bytes, %u block(s) differ\n",
 +		    (unsigned)checked, (unsigned)bad);
++
++		/*
++		 * Stage 1 tables for the window the firmware asks for.  The kit
++		 * builds LPAE tables with 4K leaves and validates every input, so
++		 * a non-Success answer here means our addresses or sizes are wrong
++		 * -- worth knowing before anything is programmed into the SMMU.
++		 */
++		{
++			extern kern_return_t kmem_alloc_contig(vm_map_t, vm_offset_t *,
++			    vm_size_t, vm_offset_t, ppnum_t, ppnum_t, kma_flags_t,
++			    vm_tag_t);
++			vm_offset_t tbl = 0;
++			kern_return_t tkr = kmem_alloc_contig(kernel_map, &tbl, 0x3000,
++			    0xfff, 0, 0, 0, VM_KERN_MEMORY_IOKIT);
++
++			if (tkr != KERN_SUCCESS || tbl == 0) {
++				kprintf("NABU SMMU TBL: kmem_alloc_contig failed %d\n", (int)tkr);
++				return;
++			}
++			bzero((void *)tbl, 0x3000);
++
++			ArmSmmu4KConfig cfg;
++			ArmSmmu4KRange range;
++			ArmSmmu4KResult res;
++			uint64_t gmu_pa = (uint64_t)ml_vtophys(va);
++			uint64_t tbl_pa = (uint64_t)ml_vtophys(tbl);
++
++			bzero(&cfg, sizeof(cfg));
++			bzero(&range, sizeof(range));
++			bzero(&res, sizeof(res));
++			cfg.input_bits = 32;
++			cfg.output_bits = 32;
++			cfg.table_physical = tbl_pa;
++			cfg.leaf_budget = 128;
++
++			range.iova = 0;
++			range.physical = gmu_pa;
++			range.bytes = 0x80000;
++			range.permissions = ArmSmmu4KRead | ArmSmmu4KWrite;
++			range.writeback = 0;
++			range.shareability = 3;
++
++			ArmSmmu4KStatus st = ArmSmmu4KBuild(&cfg, &range, 1,
++			    (uint64_t *)tbl, 3, &res);
++
++			kprintf("NABU SMMU TBL: gmu_pa %#llx tbl_pa %#llx status %d\n",
++			    (unsigned long long)gmu_pa, (unsigned long long)tbl_pa, (int)st);
++			kprintf("NABU SMMU TBL: start_level %u table_pages %u leaf_pages %u root %#llx\n",
++			    (unsigned)res.start_level, (unsigned)res.table_pages,
++			    (unsigned)res.leaf_pages, (unsigned long long)res.root_physical);
++		}
 +	}
 +}
 +#endif
@@ -2085,7 +2139,7 @@ index 25de5a3..3a56a24 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +866,16 @@ bsd_init(void)
+@@ -712,10 +920,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2102,7 +2156,7 @@ index 25de5a3..3a56a24 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +886,47 @@ bsd_init(void)
+@@ -726,26 +940,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2150,7 +2204,7 @@ index 25de5a3..3a56a24 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +935,26 @@ bsd_init(void)
+@@ -754,14 +989,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2177,7 +2231,7 @@ index 25de5a3..3a56a24 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +962,13 @@ bsd_init(void)
+@@ -769,7 +1016,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2191,7 +2245,7 @@ index 25de5a3..3a56a24 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +991,28 @@ bsd_init(void)
+@@ -792,16 +1045,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2220,7 +2274,7 @@ index 25de5a3..3a56a24 100644
  #endif
  
  	/*
-@@ -812,11 +1023,18 @@ bsd_init(void)
+@@ -812,11 +1077,18 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2240,7 +2294,7 @@ index 25de5a3..3a56a24 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1046,9 @@ bsd_init(void)
+@@ -828,6 +1100,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2250,7 +2304,7 @@ index 25de5a3..3a56a24 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1084,47 @@ bsd_init(void)
+@@ -863,25 +1138,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
