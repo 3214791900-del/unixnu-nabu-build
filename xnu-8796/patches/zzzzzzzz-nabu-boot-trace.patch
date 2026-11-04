@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..104ee4b 100644
+index 25de5a3..38ed4d9 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,345 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,350 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2230,10 +2230,15 @@ index 25de5a3..104ee4b 100644
 +					volatile uint32_t *cbr =
 +					    (volatile uint32_t *)(sva + pr.context_offset);
 +					uint32_t sc = cbr[0];
++					uint32_t fsr = cbr[0x58 / 4];
 +
-+					cbr[0] = sc | 1u;
-+					__asm__ volatile("dsb sy" ::: "memory");
-+					kprintf("NABU SMMU REG: sctlr %#x -> %#x\n", sc, cbr[0]);
++					kprintf("NABU SMMU REG: sctlr %#x fsr %#x\n", sc, fsr);
++					if (fsr != 0) {
++						cbr[0x58 / 4] = 0xffffffffu;
++						__asm__ volatile("dsb sy" ::: "memory");
++						kprintf("NABU SMMU REG: fsr cleared -> %#x\n",
++						    cbr[0x58 / 4]);
++					}
 +				}
 +
 +				if (pst == ArmSmmu4KSuccess) {
@@ -2270,7 +2275,7 @@ index 25de5a3..104ee4b 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1051,16 @@ bsd_init(void)
+@@ -712,10 +1056,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2287,7 +2292,7 @@ index 25de5a3..104ee4b 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1071,47 @@ bsd_init(void)
+@@ -726,26 +1076,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2335,7 +2340,7 @@ index 25de5a3..104ee4b 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1120,26 @@ bsd_init(void)
+@@ -754,14 +1125,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2362,7 +2367,7 @@ index 25de5a3..104ee4b 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1147,13 @@ bsd_init(void)
+@@ -769,7 +1152,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2376,7 +2381,7 @@ index 25de5a3..104ee4b 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1176,28 @@ bsd_init(void)
+@@ -792,16 +1181,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2405,7 +2410,7 @@ index 25de5a3..104ee4b 100644
  #endif
  
  	/*
-@@ -812,11 +1208,18 @@ bsd_init(void)
+@@ -812,11 +1213,18 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2425,7 +2430,7 @@ index 25de5a3..104ee4b 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1231,9 @@ bsd_init(void)
+@@ -828,6 +1236,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2435,7 +2440,7 @@ index 25de5a3..104ee4b 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1269,47 @@ bsd_init(void)
+@@ -863,25 +1274,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
