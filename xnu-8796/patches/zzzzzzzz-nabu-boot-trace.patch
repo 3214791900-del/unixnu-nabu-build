@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..bc55392 100644
+index 25de5a3..07df539 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,624 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,642 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2462,6 +2462,24 @@ index 25de5a3..bc55392 100644
 +	gmu = (volatile uint32_t *)gv;
 +	smmu = (volatile uint32_t *)sv;
 +
++	/*
++	 * The GPU block is power collapsed by the always-on sequencer whenever no
++	 * vote holds it up, so everything below has to happen in one tight
++	 * sequence: power it, rebuild the context it lost, then start the GMU.
++	 */
++	{
++		extern int nabu_gpu_steps(unsigned int steps);
++		extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++		vm_offset_t gd = ml_io_map(0x02c91000, 0x1000);
++		int pst;
++
++		kprintf("NABU M1: gdscr before %#x\n",
++		    (gd != 0) ? *(volatile uint32_t *)(gd + 0x6c) : 0xdeadbeefu);
++		pst = nabu_gpu_steps(0x1u | 0x4u);
++		kprintf("NABU M1: power steps %d, gdscr now %#x\n", pst,
++		    (gd != 0) ? *(volatile uint32_t *)(gd + 0x6c) : 0xdeadbeefu);
++	}
++
 +	/* is the GPU still powered, and did context 1 take a fault? */
 +	{
 +		extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
@@ -2549,7 +2567,7 @@ index 25de5a3..bc55392 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1330,16 @@ bsd_init(void)
+@@ -712,10 +1348,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2566,7 +2584,7 @@ index 25de5a3..bc55392 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1350,47 @@ bsd_init(void)
+@@ -726,26 +1368,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2614,7 +2632,7 @@ index 25de5a3..bc55392 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1399,26 @@ bsd_init(void)
+@@ -754,14 +1417,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2641,7 +2659,7 @@ index 25de5a3..bc55392 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1426,13 @@ bsd_init(void)
+@@ -769,7 +1444,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2655,7 +2673,7 @@ index 25de5a3..bc55392 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1455,28 @@ bsd_init(void)
+@@ -792,16 +1473,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2684,7 +2702,7 @@ index 25de5a3..bc55392 100644
  #endif
  
  	/*
-@@ -812,11 +1487,82 @@ bsd_init(void)
+@@ -812,11 +1505,82 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2768,7 +2786,7 @@ index 25de5a3..bc55392 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1574,9 @@ bsd_init(void)
+@@ -828,6 +1592,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2778,7 +2796,7 @@ index 25de5a3..bc55392 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1612,47 @@ bsd_init(void)
+@@ -863,25 +1630,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
