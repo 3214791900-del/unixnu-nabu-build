@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..e11da63 100644
+index 25de5a3..ae43b7b 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,430 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,385 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2233,51 +2233,6 @@ index 25de5a3..e11da63 100644
 +					uint32_t fsr = cbr[0x58 / 4];
 +
 +					kprintf("NABU SMMU REG: sctlr %#x fsr %#x\n", sc, fsr);
-+						{
-+							volatile uint32_t *s2;
-+							volatile uint32_t *sm;
-+							volatile uint32_t *cbar;
-+							uint32_t o2;
-+							uint32_t om;
-+							uint32_t oc;
-+							unsigned i;
-+
-+							s2 = (volatile uint32_t *)(sva + 0xc00 + 4 * 4);
-+							sm = (volatile uint32_t *)(sva + 0x800 + 4 * 4);
-+							cbar = (volatile uint32_t *)(sva + 0x1000 + 4 * 1);
-+							o2 = *s2;
-+							om = *sm;
-+							oc = *cbar;
-+							kprintf("NABU SMMU RO: s2cr4 %#x smr4 %#x cbar1 %#x\n",
-+							    o2, om, oc);
-+							for (i = 0; i < 3; i++) {
-+								uint32_t v;
-+
-+								if (i == 0) {
-+									v = 0x20000u;
-+								} else if (i == 1) {
-+									v = 0x00020001u;
-+								} else {
-+									v = 0u;
-+								}
-+								*s2 = v;
-+								__asm__ volatile("dsb sy" ::: "memory");
-+								kprintf("NABU SMMU RO: s2cr4 <- %#x reads %#x\n",
-+								    v, *s2);
-+							}
-+							*sm = 0x80000004u;
-+							__asm__ volatile("dsb sy" ::: "memory");
-+							kprintf("NABU SMMU RO: smr4 <- 0x80000004 reads %#x\n", *sm);
-+							*cbar = oc | 0x10000u;
-+							__asm__ volatile("dsb sy" ::: "memory");
-+							kprintf("NABU SMMU RO: cbar1 <- %#x reads %#x\n",
-+							    oc | 0x10000u, *cbar);
-+							*s2 = o2;
-+							*sm = om;
-+							*cbar = oc;
-+							__asm__ volatile("dsb sy" ::: "memory");
-+						}
-+
 +					{
 +						for (unsigned slot = 0; slot < 8; slot++) {
 +							kprintf("NABU SMMU MAP: slot %u smr %#x s2cr %#x\n",
@@ -2355,7 +2310,7 @@ index 25de5a3..e11da63 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1136,16 @@ bsd_init(void)
+@@ -712,10 +1091,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2372,7 +2327,7 @@ index 25de5a3..e11da63 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1156,47 @@ bsd_init(void)
+@@ -726,26 +1111,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2420,7 +2375,7 @@ index 25de5a3..e11da63 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1205,26 @@ bsd_init(void)
+@@ -754,14 +1160,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2447,7 +2402,7 @@ index 25de5a3..e11da63 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1232,13 @@ bsd_init(void)
+@@ -769,7 +1187,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2461,7 +2416,7 @@ index 25de5a3..e11da63 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1261,28 @@ bsd_init(void)
+@@ -792,16 +1216,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2490,7 +2445,7 @@ index 25de5a3..e11da63 100644
  #endif
  
  	/*
-@@ -812,11 +1293,119 @@ bsd_init(void)
+@@ -812,11 +1248,18 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2498,107 +2453,6 @@ index 25de5a3..e11da63 100644
 +	loopattach();
 +#if defined(NABU)
 +	kprintf("NABU BOOT: after loopattach\n");
-+
-+	/*
-+	 * Path A: the SMMU's stream routing lives behind the secure monitor on
-+	 * this platform, so the first question is whether it answers this kernel
-+	 * at all.  SCM_IS_CALL_AVAILABLE is the call Linux uses to find out.
-+	 */
-+	{
-+		uint64_t fast = (1ull << 31) | (1ull << 30) | (2ull << 24);
-+		uint64_t avail = (6ull << 8) | 1ull;
-+		register uint64_t x0 __asm__("x0") = fast | avail;
-+		register uint64_t x1 __asm__("x1") = 1;
-+		register uint64_t x2 __asm__("x2") = (2ull << 24) | avail;
-+		register uint64_t x3 __asm__("x3") = 0;
-+		register uint64_t x4 __asm__("x4") = 0;
-+		register uint64_t x5 __asm__("x5") = 0;
-+		register uint64_t x6 __asm__("x6") = 0;
-+
-+		kprintf("NABU SCM: asking the secure monitor\n");
-+		__asm__ volatile("smc #0"
-+		    : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x4), "+r"(x5),
-+		      "+r"(x6)
-+		    :
-+		    : "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
-+		      "x15", "x16", "x17", "memory");
-+		kprintf("NABU SCM: x0 %#llx x1 %#llx\n",
-+		    (unsigned long long)x0, (unsigned long long)x1);
-+
-+		/*
-+		 * If the monitor can act for us, ask it to write the SMMU stream
-+		 * register we cannot write ourselves (service 1 command 2 is the
-+		 * vendor IO write used for registers in secure space).
-+		 */
-+		{
-+			/* ask the monitor which services it actually offers */
-+			static const uint32_t svc_cmd[][2] = {
-+				{ 1, 1 },   /* IO read   */
-+				{ 1, 2 },   /* IO write  */
-+				{ 2, 1 },   /* PAS init image        */
-+				{ 2, 5 },   /* PAS auth and reset    */
-+				{ 2, 6 },   /* PAS shutdown          */
-+				{ 2, 7 },   /* PAS is supported      */
-+			};
-+
-+			for (unsigned i = 0; i < sizeof(svc_cmd) / sizeof(svc_cmd[0]); i++) {
-+				uint64_t fast = (1ull << 31) | (1ull << 30) | (2ull << 24);
-+				uint64_t avail = (6ull << 8) | 1ull;
-+				uint64_t q = (2ull << 24) |
-+				    ((uint64_t)svc_cmd[i][0] << 8) | svc_cmd[i][1];
-+				register uint64_t d0 __asm__("x0") = fast | avail;
-+				register uint64_t d1 __asm__("x1") = 1;
-+				register uint64_t d2 __asm__("x2") = q;
-+				register uint64_t d3 __asm__("x3") = 0;
-+				register uint64_t d4 __asm__("x4") = 0;
-+				register uint64_t d5 __asm__("x5") = 0;
-+				register uint64_t d6 __asm__("x6") = 0;
-+
-+				__asm__ volatile("smc #0"
-+				    : "+r"(d0), "+r"(d1), "+r"(d2), "+r"(d3), "+r"(d4),
-+				      "+r"(d5), "+r"(d6)
-+				    :
-+				    : "x7", "x8", "x9", "x10", "x11", "x12", "x13",
-+				      "x14", "x15", "x16", "x17", "memory");
-+				kprintf("NABU SCM SVC: %u/%u -> rc %#llx avail %#llx\\n",
-+				    svc_cmd[i][0], svc_cmd[i][1],
-+				    (unsigned long long)d0, (unsigned long long)d1);
-+			}
-+		}
-+
-+		{
-+			extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-+			vm_offset_t sv = ml_io_map(0x02ca0000, 0x20000);
-+
-+			if (sv != 0) {
-+				uint64_t target = 0x02ca0000ull + 0xc00ull + 4ull * 4ull;
-+				uint64_t want = 0x20000ull;
-+				uint32_t before = *(volatile uint32_t *)(sv + 0xc00 + 4 * 4);
-+
-+				register uint64_t c0 __asm__("x0") =
-+				    (1ull << 31) | (1ull << 30) | (2ull << 24) | (1ull << 8) | 2ull;
-+				register uint64_t c1 __asm__("x1") = 2;
-+				register uint64_t c2 __asm__("x2") = target;
-+				register uint64_t c3 __asm__("x3") = want;
-+				register uint64_t c4 __asm__("x4") = 0;
-+				register uint64_t c5 __asm__("x5") = 0;
-+				register uint64_t c6 __asm__("x6") = 0;
-+
-+				__asm__ volatile("smc #0"
-+				    : "+r"(c0), "+r"(c1), "+r"(c2), "+r"(c3), "+r"(c4),
-+				      "+r"(c5), "+r"(c6)
-+				    :
-+				    : "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
-+				      "x15", "x16", "x17", "memory");
-+
-+				__asm__ volatile("dsb sy" ::: "memory");
-+				kprintf("NABU SCM: io write x0 %#llx s2cr4 %#x -> %#x\n",
-+				    (unsigned long long)c0, before,
-+				    *(volatile uint32_t *)(sv + 0xc00 + 4 * 4));
-+			}
-+		}
-+	}
-+
 +	nabu_gmu_fw_probe();
 +#endif                   /* XXX */
  #endif
@@ -2611,7 +2465,7 @@ index 25de5a3..e11da63 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1417,9 @@ bsd_init(void)
+@@ -828,6 +1271,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2621,7 +2475,7 @@ index 25de5a3..e11da63 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1455,47 @@ bsd_init(void)
+@@ -863,25 +1309,47 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
