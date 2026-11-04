@@ -1921,7 +1921,7 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..be96abc 100644
+index 25de5a3..14ce4be 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
 @@ -195,6 +195,9 @@
@@ -1934,7 +1934,7 @@ index 25de5a3..be96abc 100644
  #include <machine/pal_routines.h>
  #include <console/video_console.h>
  
-@@ -473,6 +476,787 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +476,800 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -1972,6 +1972,19 @@ index 25de5a3..be96abc 100644
 +		return 63;
 +	}
 +	return -1;
++}
++
++/*
++ * Everything GPU-related is off unless nabu_gpu_probe=1: decoding the firmware,
++ * programming SMMU contexts and holding the GPU's power domain are all suspects
++ * for the stall in userland, and none of them is needed to reach the desktop.
++ */
++static int
++nabu_gpu_probe_enabled(void)
++{
++	int on = 0;
++
++	return PE_parse_boot_argn("nabu_gpu_probe", &on, sizeof(on)) && on != 0;
 +}
 +
 +static void
@@ -2722,7 +2735,7 @@ index 25de5a3..be96abc 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1496,16 @@ bsd_init(void)
+@@ -712,10 +1509,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2739,7 +2752,7 @@ index 25de5a3..be96abc 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1516,47 @@ bsd_init(void)
+@@ -726,26 +1529,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2787,7 +2800,7 @@ index 25de5a3..be96abc 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1565,26 @@ bsd_init(void)
+@@ -754,14 +1578,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2814,7 +2827,7 @@ index 25de5a3..be96abc 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1592,13 @@ bsd_init(void)
+@@ -769,7 +1605,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2828,7 +2841,7 @@ index 25de5a3..be96abc 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1621,28 @@ bsd_init(void)
+@@ -792,16 +1634,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2857,7 +2870,7 @@ index 25de5a3..be96abc 100644
  #endif
  
  	/*
-@@ -812,11 +1653,82 @@ bsd_init(void)
+@@ -812,11 +1666,86 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2917,19 +2930,23 @@ index 25de5a3..be96abc 100644
 +			    (unsigned long long)e0, (unsigned long long)e1);
 +		}
 +	}
-+	{
-+		extern kern_return_t kernel_thread_start(thread_continue_t, void *,
-+		    thread_t *);
-+		thread_t ioth = NULL;
-+		kern_return_t iokr;
++	if (nabu_gpu_probe_enabled()) {
++		{
++			extern kern_return_t kernel_thread_start(thread_continue_t,
++			    void *, thread_t *);
++			thread_t ioth = NULL;
++			kern_return_t iokr;
 +
-+		iokr = kernel_thread_start(nabu_gmu_start_thread, NULL, &ioth);
-+		kprintf("NABU M1: thread start %d\n", (int)iokr);
-+		if (iokr == KERN_SUCCESS && ioth != NULL) {
-+			thread_deallocate(ioth);
++			iokr = kernel_thread_start(nabu_gmu_start_thread, NULL, &ioth);
++			kprintf("NABU M1: thread start %d\n", (int)iokr);
++			if (iokr == KERN_SUCCESS && ioth != NULL) {
++				thread_deallocate(ioth);
++			}
 +		}
++		nabu_gmu_fw_probe();
++	} else {
++		kprintf("NABU GPU: probe disabled (set nabu_gpu_probe=1)\n");
 +	}
-+	nabu_gmu_fw_probe();
 +#endif                   /* XXX */
  #endif
  #if NGIF
@@ -2941,7 +2958,7 @@ index 25de5a3..be96abc 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1740,9 @@ bsd_init(void)
+@@ -828,6 +1757,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2951,7 +2968,7 @@ index 25de5a3..be96abc 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1778,96 @@ bsd_init(void)
+@@ -863,25 +1795,96 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
