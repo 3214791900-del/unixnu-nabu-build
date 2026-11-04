@@ -1921,10 +1921,10 @@ index 0000000..96fb149
 +
 +#endif /* ARM_SMMU_4K_TYPES_H */
 diff --git a/bsd/kern/bsd_init.c b/bsd/kern/bsd_init.c
-index 25de5a3..9cfad5c 100644
+index 25de5a3..a7249e9 100644
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -473,6 +473,744 @@ bsd_rooted_ramdisk(void)
+@@ -473,6 +473,748 @@ bsd_rooted_ramdisk(void)
   * of the tro_ucred field so that the uthread structure can be
   * used like any other.
   */
@@ -2141,6 +2141,7 @@ index 25de5a3..9cfad5c 100644
 +							p += 4;
 +						}
 +						loaded += len;
++						nabu_gmu_itcm_bytes += len;
 +						kprintf("NABU GMU ITCM: block %#x len %#x loaded\n",
 +						    addr, len);
 +					} else if (addr >= 0x40000u && addr + len <= 0x44000u) {
@@ -2174,6 +2175,7 @@ index 25de5a3..9cfad5c 100644
 +							p += 4;
 +						}
 +						loaded += len;
++						nabu_gmu_dtcm_bytes += len;
 +						kprintf("NABU GMU DTCM: block %#x len %#x loaded\n",
 +						    addr, len);
 +					}
@@ -2457,6 +2459,8 @@ index 25de5a3..9cfad5c 100644
 +static volatile uint32_t nabu_m1_dtcm_after;
 +static volatile uint32_t nabu_m1_fw_result;
 +static volatile uint32_t nabu_m1_done;
++static volatile uint32_t nabu_gmu_itcm_bytes;
++static volatile uint32_t nabu_gmu_dtcm_bytes;
 +
 +/*
 + * M1: point the GMU's streams at our page tables, then walk the GMU through the
@@ -2669,7 +2673,7 @@ index 25de5a3..9cfad5c 100644
  void
  bsd_init(void)
  {
-@@ -712,10 +1450,16 @@ bsd_init(void)
+@@ -712,10 +1454,16 @@ bsd_init(void)
  #if SOCKETS
  	/* Initialize per-CPU cache allocator */
  	mcache_init();
@@ -2686,7 +2690,7 @@ index 25de5a3..9cfad5c 100644
  	restricted_in_port_init();
  #endif /* SOCKETS */
  
-@@ -726,26 +1470,47 @@ bsd_init(void)
+@@ -726,26 +1474,47 @@ bsd_init(void)
  #if CONFIG_AUDIT
  	bsd_init_kprintf("calling audit_init\n");
  	audit_init();
@@ -2734,7 +2738,7 @@ index 25de5a3..9cfad5c 100644
  
  	/*
  	 * Initialize protocols.  Block reception of incoming packets
-@@ -754,14 +1519,26 @@ bsd_init(void)
+@@ -754,14 +1523,26 @@ bsd_init(void)
  #if NETWORKING
  	bsd_init_kprintf("calling nwk_wq_init\n");
  	nwk_wq_init();
@@ -2761,7 +2765,7 @@ index 25de5a3..9cfad5c 100644
  	iptap_init();
  #if FLOW_DIVERT
  	flow_divert_init();
-@@ -769,7 +1546,13 @@ bsd_init(void)
+@@ -769,7 +1550,13 @@ bsd_init(void)
  #endif /* SOCKETS */
  #if SKYWALK
  	bsd_init_kprintf("calling skywalk_init\n");
@@ -2775,7 +2779,7 @@ index 25de5a3..9cfad5c 100644
  #endif /* SKYWALK */
  #if NETWORKING
  #if NECP
-@@ -792,16 +1575,28 @@ bsd_init(void)
+@@ -792,16 +1579,28 @@ bsd_init(void)
  	/* Initialize kernel memory status notifications */
  	bsd_init_kprintf("calling memorystatus_init\n");
  	memorystatus_init();
@@ -2804,7 +2808,7 @@ index 25de5a3..9cfad5c 100644
  #endif
  
  	/*
-@@ -812,11 +1607,82 @@ bsd_init(void)
+@@ -812,11 +1611,82 @@ bsd_init(void)
  #include <loop.h>
  #if NLOOP > 0
  	bsd_init_kprintf("calling loopattach\n");
@@ -2888,7 +2892,7 @@ index 25de5a3..9cfad5c 100644
  #endif
  
  #if PFLOG
-@@ -828,6 +1694,9 @@ bsd_init(void)
+@@ -828,6 +1698,9 @@ bsd_init(void)
  	/* Register the built-in dlil ethernet interface family */
  	bsd_init_kprintf("calling ether_family_init\n");
  	ether_family_init();
@@ -2898,7 +2902,7 @@ index 25de5a3..9cfad5c 100644
  #endif /* ETHER */
  
  #if NETWORKING
-@@ -863,25 +1732,51 @@ bsd_init(void)
+@@ -863,25 +1736,53 @@ bsd_init(void)
  	 */
  	bsd_init_kprintf("calling net_init_run\n");
  	net_init_run();
@@ -2923,6 +2927,8 @@ index 25de5a3..9cfad5c 100644
 +#endif
  		setconf();
 +#if defined(NABU)
++		kprintf("NABU GMU LOAD SUMMARY: itcm %u dtcm %u bytes\n",
++		    (unsigned)nabu_gmu_itcm_bytes, (unsigned)nabu_gmu_dtcm_bytes);
 +		kprintf("NABU M1 SUMMARY: done %u dtcm %#x -> %#x fw %#x %s\n",
 +		    (unsigned)nabu_m1_done, (unsigned)nabu_m1_dtcm_before,
 +		    (unsigned)nabu_m1_dtcm_after, (unsigned)nabu_m1_fw_result,
