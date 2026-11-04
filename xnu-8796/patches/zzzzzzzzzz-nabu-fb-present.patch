@@ -1,6 +1,24 @@
 --- a/iokit/Kernel/arm/NabuFramebuffer.cpp
 +++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
-@@ -381,14 +381,36 @@
+@@ -367,8 +367,17 @@
+ }
+ 
+ static uint64_t nabu_fb_logged;        /* selectors already logged (< 64) */
+ 
++static inline void
++nabu_fb_put32(uint8_t *p, uint32_t off, uint32_t v)
++{
++	p[off + 0] = (uint8_t)(v);
++	p[off + 1] = (uint8_t)(v >> 8);
++	p[off + 2] = (uint8_t)(v >> 16);
++	p[off + 3] = (uint8_t)(v >> 24);
++}
++
+ IOReturn
+ IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMethodArguments *args,
+     __unused IOExternalMethodDispatch *dispatch, __unused OSObject *target,
+     __unused void *reference)
+@@ -381,14 +390,36 @@
  	case kNabuFBGetLayerDefaultSurface:
  		out[0] = nabu_surface_port_in_task(fFB->fSurface, fTask);
  		outCount = 1;
@@ -24,13 +42,13 @@
 +		if ((fFB->fSwapID & 3u) == 0 && fFB->fSurface != NULL &&
 +		    fFB->fSurface->id != 0) {
 +			bzero(rec, sizeof(rec));
-+			put32(rec, 0x50, fFB->fSwapID);
-+			put32(rec, 0x54, fFB->fSurface->id);
-+			put32(rec, 0x104, 1u);
-+			put32(rec, 0x64 + 8, fFB->fWidth);
-+			put32(rec, 0x64 + 12, fFB->fHeight);
-+			put32(rec, 0xc4 + 8, fFB->fWidth);
-+			put32(rec, 0xc4 + 12, fFB->fHeight);
++			nabu_fb_put32(rec, 0x50, fFB->fSwapID);
++			nabu_fb_put32(rec, 0x54, fFB->fSurface->id);
++			nabu_fb_put32(rec, 0x104, 1u);
++			nabu_fb_put32(rec, 0x64 + 8, fFB->fWidth);
++			nabu_fb_put32(rec, 0x64 + 12, fFB->fHeight);
++			nabu_fb_put32(rec, 0xc4 + 8, fFB->fWidth);
++			nabu_fb_put32(rec, 0xc4 + 12, fFB->fHeight);
 +			fFB->swap(rec);
 +		}
 +		break;
