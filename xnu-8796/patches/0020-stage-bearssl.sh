@@ -7,14 +7,32 @@ if [[ -d libkern/crypto/nabu_bearssl ]]; then
     echo "BearSSL source already staged; skipping"
     exit 0
 fi
-bearssl_sha=7bea48e5e850ab4cafbe68d3765cdaba13a86d6f
+# bearssl.org's git server answers 502 or times out for CI runners often
+# enough that the build needs a second source.  The Debian mirror carries the
+# same upstream tree; both are pinned.
+bearssl_org_sha=7bea48e5e850ab4cafbe68d3765cdaba13a86d6f
+bearssl_deb_sha=001b4b1d91f050ab05aaead0951078e64fe80915
 bearssl_tmp=$(mktemp -d)
 trap 'rm -rf "$bearssl_tmp"' EXIT
 git init -q "$bearssl_tmp"
-git -C "$bearssl_tmp" fetch -q --depth 1 \
-    https://www.bearssl.org/git/BearSSL "$bearssl_sha"
-git -C "$bearssl_tmp" checkout -q FETCH_HEAD
-[[ "$(git -C "$bearssl_tmp" rev-parse HEAD)" == "$bearssl_sha" ]]
+bearssl_ok=0
+for bearssl_pair in \
+    "https://www.bearssl.org/git/BearSSL $bearssl_org_sha" \
+    "https://salsa.debian.org/debian/bearssl.git $bearssl_deb_sha"
+do
+    set -- $bearssl_pair
+    bearssl_url=$1
+    bearssl_sha=$2
+    if git -C "$bearssl_tmp" fetch -q --depth 1 "$bearssl_url" "$bearssl_sha" 2>/dev/null; then
+        git -C "$bearssl_tmp" checkout -q FETCH_HEAD
+        if [[ "$(git -C "$bearssl_tmp" rev-parse HEAD)" == "$bearssl_sha" ]]; then
+            bearssl_ok=1
+            echo "BearSSL fetched from $bearssl_url"
+            break
+        fi
+    fi
+done
+[[ "$bearssl_ok" == 1 ]] || { echo "could not fetch BearSSL from any source" >&2; exit 1; }
 python3 - "$bearssl_tmp" <<'PY'
 from pathlib import Path
 import shutil
