@@ -1,0 +1,37 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -7557,23 +7557,20 @@
+ 			os_log(peLog, "CS Platform Exec Logging: Executing platform signed binary "
+ 			    "'%s' with cdhash %s\n", p->p_name, cdhash_string);
+ 		}
+ 	} else {
++		/*
++		 * NABU: this port has no trust cache (no Image4) and the root volume
++		 * is unsealed, so signature setup fails for launchd and the stock code
++		 * below answers with SIGKILL (CS_KILLED) - that is what ended every
++		 * boot at load_init_program. Let the exec go ahead instead: the
++		 * filesystem is ours and there is nothing else here to trust.
++		 */
+ 		if (!unexpected_failure) {
+-			proc_csflags_set(p, CS_KILLED);
+-		}
+-		/* make very sure execution fails */
+-		if (vfexec || spawn) {
+-			assert(signature_failure_reason != OS_REASON_NULL);
+-			psignal_vfork_with_reason(p, proc_task(p), imgp->ip_new_thread,
+-			    SIGKILL, signature_failure_reason);
+-			signature_failure_reason = OS_REASON_NULL;
+-			error = 0;
+-		} else {
+-			assert(signature_failure_reason != OS_REASON_NULL);
+-			psignal_with_reason(p, SIGKILL, signature_failure_reason);
+-			signature_failure_reason = OS_REASON_NULL;
+-		}
++			proc_csflags_set(p, CS_SIGNED | CS_VALID);
++		}
++		signature_failure_reason = OS_REASON_NULL;
++		error = 0;
+ 	}
+ 
+ 	if (port != IPC_PORT_NULL) {
+ 		ipc_port_release_send(port);
