@@ -1,0 +1,45 @@
+# Build the nabu xnu-8796 kernel on Azure Pipelines' macOS agents.
+#
+# Why: GitHub Actions' macOS runners are unusable for this account (jobs are
+# cancelled before a runner is assigned), and cirrus-ci.com is not reachable
+# from mainland China. dev.azure.com is, and its free tier includes macOS
+# minutes. The pipeline uses "Other Git" (a public clone URL, no credentials)
+# and clones the branch itself, so nothing here depends on Azure knowing about
+# the GitHub repository.
+trigger: none
+pr: none
+
+pool:
+  vmImage: 'macOS-14'
+
+variables:
+  REPO_BRANCH: nabu-gpu-port
+
+steps:
+  - checkout: none
+
+  - script: |
+      set -x
+      sw_vers
+      ls -d /Applications/Xcode*.app || true
+      git clone --depth 1 -b $(REPO_BRANCH) \
+        https://github.com/3214791900-del/unixnu-nabu-build.git src
+      ls src/xnu-8796/patches | wc -l
+    displayName: clone the patch set
+
+  - script: |
+      set -x
+      bash src/scripts/build-on-mac.sh "$PWD/src"
+    displayName: build xnu-8796 (nabu)
+    timeoutInMinutes: 100
+
+  - script: |
+      set -x
+      ls -la work/out || true
+      shasum -a 256 work/out/kernel.* || true
+    displayName: list the kernel
+    condition: always()
+
+  - publish: work/out
+    artifact: kernel
+    condition: always()
