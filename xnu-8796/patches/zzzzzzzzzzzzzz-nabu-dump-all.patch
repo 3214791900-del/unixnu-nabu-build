@@ -1,0 +1,35 @@
+--- a/bsd/dev/nabu_ufs.c
++++ b/bsd/dev/nabu_ufs.c
+@@ -18,17 +18,32 @@
+ static int
+ nabu_log_keep(const char *line)
+ {
+ 	/*
+ 	 * nabudump_accel=1 narrows the dump to the accelerator and crashes: the
+ 	 * IOKit matching lines are ~200 characters each and flood the panel, so
+ 	 * the ACCEL lines ("registered", "user client OPENED by ...") get
+ 	 * scrolled away before they can be read.
+ 	 */
+ 	static int accel_only = -1;
+ 	static const char *const accel[] = { "NABU ACCEL:", "CRASH ", "panic", ": open " };
+ 	static const char *const want[] = {
+ 		"NABU FB:", "NABU SURF:", "NABU SCALER:", "NABU ACCEL:",
+ 		"IOK backboardd", "matching1", "CRASH ", "panic",
+ 	};
+ 	size_t i;
++	{
++		/*
++		 * nabudump_all=1 turns the filter off: read the whole tail of the
++		 * ring, dyld and launchd messages included.
++		 */
++		static int print_all = -1;
++		if (print_all < 0) {
++			int v = 0;
++			print_all = PE_parse_boot_argn("nabudump_all", &v, sizeof(v)) && v;
++		}
++		if (print_all) {
++			return 1;
++		}
++	}
+ 
+ 	if (accel_only < 0) {
