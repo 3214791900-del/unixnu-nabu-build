@@ -1,12 +1,14 @@
 --- a/bsd/dev/nabu_gpu_power.c
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -399,4 +399,182 @@
+@@ -399,4 +399,209 @@
  	    before, nabu_gpu_gdsc_read(rail->gdsc_base));
  	*(volatile unsigned int *)ml_io_map(rail->gdsc_base, NABU_GPU_CX_GDSC_REG_SIZE) = before;
  	return ETIMEDOUT;
  }
 +
 +/* ---- GMU firmware loader; image lives in nabu_gpu_fw_a640.h ---- */
++#include <pexpert/pexpert.h>
++#include <kern/startup.h>
 +#include "NativeAdrenoA640HwInit.h"
 +#include "nabu_gpu_fw_a640.h"
 +
@@ -183,3 +185,28 @@
 +	    result, nabu_gmu_read(A640_GMU_CM3_SYSRESET));
 +	return ETIMEDOUT;
 +}
++
++/*
++ * nabugpuprobe>=6 runs the whole GPU bring-up from here instead of from
++ * nabu_rpmh_gpu.c: clocks, the two RPMh votes and the CX rail first, then the
++ * GMU firmware. Self-contained on purpose -- one file to patch, one place to
++ * read the order.
++ */
++static void
++nabu_gpu_gmu_boot_hook(void)
++{
++	int enabled = 0;
++
++	(void)PE_parse_boot_argn("nabugpuprobe", &enabled, sizeof(enabled));
++	if (enabled < 6) {
++		return;
++	}
++	printf("NABU GPU: ===== probe=6: clocks, rails, GMU =====\n");
++	(void)nabu_gpu_steps(NABU_GPU_STEP_CLOCKS | NABU_GPU_STEP_ARC |
++	    NABU_GPU_STEP_CX_GDSC);
++	printf("NABU GPU: ===== GMU firmware load begin =====\n");
++	int error = nabu_gpu_gmu_load();
++	printf("NABU GPU: GMU firmware load -> %d\n", error);
++	printf("NABU GPU: ===== probe=6 done =====\n");
++}
++STARTUP(EARLY_BOOT, STARTUP_RANK_LAST, nabu_gpu_gmu_boot_hook);
