@@ -1,0 +1,24 @@
+# Build the nabu xnu-8796 kernel on Cirrus CI's macOS VMs.
+#
+# Why this exists: GitHub Actions' macOS runners are unusable for this account
+# right now (jobs are cancelled before a runner is assigned, and the same
+# happens in a throwaway public repo), so the kernel is built here instead.
+# Cirrus gives open-source projects free macOS VMs and its sonoma-xcode:15.4
+# image is exactly the toolchain xnu-8796 needs (Xcode 16 breaks the iig step).
+task:
+  name: build-xnu-8796
+  timeout_in: 120m
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-sonoma-xcode:15.4
+
+  env:
+    WORK: $CIRRUS_WORKING_DIR/work
+
+  build_script: |
+    set -x
+    sw_vers
+    ls -d /Applications/Xcode*.app || true
+    bash "$CIRRUS_WORKING_DIR/scripts/build-on-mac.sh" "$CIRRUS_WORKING_DIR"
+
+  kernel_artifacts:
+    path: "work/out/kernel.development.nabu"
