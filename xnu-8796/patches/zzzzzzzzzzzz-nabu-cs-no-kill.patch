@@ -1,0 +1,24 @@
+--- a/bsd/kern/kern_cs.c
++++ b/bsd/kern/kern_cs.c
+@@ -248,10 +248,21 @@
+ int
+ cs_invalid_page(addr64_t vaddr, boolean_t *cs_killed)
+ {
+ 	struct proc     *p;
+ 	int             send_kill = 0, retval = 0, verbose = cs_debug;
+ 	uint64_t flags;
+ 
++	/*
++	 * NABU: there is no trust cache (no Image4) and the root volume is
++	 * unsealed, so every hash mismatch would kill the process that touched
++	 * the page. That is exactly what killed launchd (CS_KILLED). Treat a
++	 * mismatching page as valid instead: the volume is ours either way.
++	 */
++	if (cs_killed != NULL) {
++		*cs_killed = FALSE;
++	}
++	return 0;
++
+ 	p = current_proc();
+ 
+ 	if (verbose) {
