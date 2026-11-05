@@ -63,7 +63,21 @@ fi
 grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' build.sh || true
 
 log "tooling"
-command -v brew >/dev/null && brew install jq gum bash cmake ninja 2>/dev/null | tail -2 || true
+# Homebrew can crawl on a cold cache; the build itself only needs the Xcode
+# toolchain, so cap the install and carry on either way.
+if command -v brew >/dev/null; then
+	( brew install jq gum bash cmake ninja 2>&1 | tail -3 ) &
+	brewpid=$!
+	for i in $(seq 1 48); do
+		kill -0 "$brewpid" 2>/dev/null || break
+		sleep 5
+	done
+	if kill -0 "$brewpid" 2>/dev/null; then
+		echo "brew still running after 4 min, killing it and continuing"
+		kill -9 "$brewpid" 2>/dev/null || true
+	fi
+fi
+echo "tooling step done at $(date +%H:%M:%S)"
 
 log "pick Xcode"
 XC=""
