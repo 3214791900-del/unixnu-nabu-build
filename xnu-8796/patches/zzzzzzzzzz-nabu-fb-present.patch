@@ -18,7 +18,7 @@
  IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMethodArguments *args,
      __unused IOExternalMethodDispatch *dispatch, __unused OSObject *target,
      __unused void *reference)
-@@ -381,14 +390,42 @@
+@@ -381,14 +390,63 @@
  	case kNabuFBGetLayerDefaultSurface:
  		out[0] = nabu_surface_port_in_task(fFB->fSurface, fTask);
  		outCount = 1;
@@ -55,6 +55,27 @@
 +			fFB->swap(rec);
 +			if (fFB->fSwapID < 64) {
 +				IOLog("NABU FB: swap returned for frame %u\n", fFB->fSwapID);
++			}
++			{
++				uintptr_t pbase =
++				    (uintptr_t)fFB->fSurface->kernelAddress();
++
++				if (pbase != 0) {
++					volatile uint32_t *px =
++					    (volatile uint32_t *)pbase;
++					uint32_t stride =
++					    fFB->fSurface->bytesPerRow / 4;
++					int my;
++					int mx;
++
++					/* leave a white square: proof the present ran */
++					for (my = 0; my < 16; my++) {
++						for (mx = 0; mx < 16; mx++) {
++							px[(size_t)(my + 8) * stride + mx + 8] =
++							    0xffffffffu;
++						}
++					}
++				}
 +			}
 +		}
 +		break;
