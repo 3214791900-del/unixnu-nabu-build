@@ -27,7 +27,7 @@ on:
       - ".github/workflows/build-kernel-8796.yml"
 
 concurrency:
-  group: xnu8796-${{ github.ref }}
+  group: xnu8796b-${{ github.ref }}
   cancel-in-progress: true
 
 env:
