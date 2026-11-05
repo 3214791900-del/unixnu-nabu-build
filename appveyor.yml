@@ -1,0 +1,27 @@
+# Build the nabu xnu-8796 kernel on AppVeyor's macOS VMs.
+#
+# Why: GitHub Actions' macOS runners are unusable for this account (jobs are
+# cancelled before a runner is assigned), cirrus-ci.com is unreachable from
+# mainland China, and the Azure DevOps signup flow keeps redirecting to the
+# Azure subscription page. appveyor.com is reachable directly and its
+# macos-sonoma image is macOS 14.2.1 with Xcode 15.2, which is exactly the
+# toolchain xnu-8796 needs (Xcode 16 breaks the iig step).
+version: '{build}'
+
+image: macos-sonoma
+
+branches:
+  only:
+    - nabu-gpu-port
+
+clone_depth: 1
+
+build_script:
+  - sh -c 'sw_vers; ls -d /Applications/Xcode*.app; bash scripts/build-on-mac.sh "$PWD"'
+
+artifacts:
+  - path: work/out/kernel.development.nabu
+    name: kernel
+
+  - path: work/out/SHA256SUMS
+    name: sha256
