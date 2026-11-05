@@ -63,21 +63,21 @@ fi
 grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' build.sh || true
 
 log "tooling"
-# Homebrew can crawl on a cold cache; the build itself only needs the Xcode
-# toolchain, so cap the install and carry on either way.
-if command -v brew >/dev/null; then
-	( brew install jq gum bash cmake ninja 2>&1 | tail -3 ) &
-	brewpid=$!
-	for i in $(seq 1 48); do
-		kill -0 "$brewpid" 2>/dev/null || break
-		sleep 5
-	done
-	if kill -0 "$brewpid" 2>/dev/null; then
-		echo "brew still running after 4 min, killing it and continuing"
-		kill -9 "$brewpid" 2>/dev/null || true
-	fi
+# AppVeyor's Homebrew stalls for tens of minutes on a cold cache, and the
+# build only needs the Xcode toolchain, so give it a hard 3-minute cap and
+# kill the whole process tree if it overruns.
+echo "tooling: brew (capped at 3 min)"
+( brew install jq gum bash cmake ninja >/tmp/brew.log 2>&1; touch /tmp/brew.done ) &
+for i in $(seq 1 36); do
+	[ -f /tmp/brew.done ] && break
+	sleep 5
+done
+if [ ! -f /tmp/brew.done ]; then
+	echo "brew overran 3 min, killing it"
+	pkill -f "brew" 2>/dev/null || true
+	pkill -f "curl.*Homebrew" 2>/dev/null || true
 fi
-echo "tooling step done at $(date +%H:%M:%S)"
+echo "tooling step done at $(date +%H:%M:%S) (brew done: $([ -f /tmp/brew.done ] && echo yes || echo no))"
 
 log "pick Xcode"
 XC=""
