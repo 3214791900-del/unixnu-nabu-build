@@ -1,10 +1,38 @@
 --- a/iokit/Kernel/arm/NabuFramebuffer.cpp
 +++ b/iokit/Kernel/arm/NabuFramebuffer.cpp
-@@ -367,8 +367,17 @@
+@@ -367,13 +367,51 @@
  }
  
  static uint64_t nabu_fb_logged;        /* selectors already logged (< 64) */
  
++/*
++ * Marks painted straight into the panel buffer: once userland takes the screen
++ * the console log is unreadable, but these squares stay visible.  Index 0 means
++ * "our user client was entered", 1 "SwapBegin", 2 "swap() returned".
++ */
++extern "C" vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++
++static void
++nabu_fb_dot(unsigned int idx, uint32_t color)
++{
++	static volatile uint32_t *panel;
++	unsigned int x0 = 8 + idx * 24;
++	unsigned int y;
++	unsigned int x;
++
++	if (panel == 0) {
++		panel = (volatile uint32_t *)ml_io_map(0x9c000000, 0x10000);
++	}
++	if (panel == 0) {
++		return;
++	}
++	for (y = 0; y < 16; y++) {
++		for (x = 0; x < 16; x++) {
++			panel[y * 1600 + x0 + x] = color;
++		}
++	}
++}
++
 +static inline void
 +nabu_fb_put32(uint8_t *p, uint32_t off, uint32_t v)
 +{
@@ -18,7 +46,13 @@
  IOMobileFramebufferUserClient::externalMethod(uint32_t selector, IOExternalMethodArguments *args,
      __unused IOExternalMethodDispatch *dispatch, __unused OSObject *target,
      __unused void *reference)
-@@ -381,14 +390,63 @@
+ {
++	nabu_fb_dot(0, 0xffffff00u);
+ 	IOReturn ret = kIOReturnSuccess;
+ 	uint64_t out[2] = { 0, 0 };
+ 	uint32_t outCount = 0;
+ 
+@@ -381,14 +419,44 @@
  	case kNabuFBGetLayerDefaultSurface:
  		out[0] = nabu_surface_port_in_task(fFB->fSurface, fTask);
  		outCount = 1;
@@ -41,6 +75,7 @@
 +		 */
 +		if ((fFB->fSwapID & 3u) == 0 && fFB->fSurface != NULL &&
 +		    fFB->fSurface->id != 0) {
++			nabu_fb_dot(1, 0xffffffffu);
 +			IOLog("NABU FB: present surface %u %ux%u bpr %u fmt %#x\n",
 +			    fFB->fSurface->id, fFB->fSurface->width, fFB->fSurface->height,
 +			    fFB->fSurface->bytesPerRow, fFB->fSurface->pixelFormat);
@@ -53,29 +88,9 @@
 +			nabu_fb_put32(rec, 0xc4 + 8, fFB->fWidth);
 +			nabu_fb_put32(rec, 0xc4 + 12, fFB->fHeight);
 +			fFB->swap(rec);
++			nabu_fb_dot(2, 0xffff0000u);
 +			if (fFB->fSwapID < 64) {
 +				IOLog("NABU FB: swap returned for frame %u\n", fFB->fSwapID);
-+			}
-+			{
-+				uintptr_t pbase =
-+				    (uintptr_t)fFB->fSurface->kernelAddress();
-+
-+				if (pbase != 0) {
-+					volatile uint32_t *px =
-+					    (volatile uint32_t *)pbase;
-+					uint32_t stride =
-+					    fFB->fSurface->bytesPerRow / 4;
-+					int my;
-+					int mx;
-+
-+					/* leave a white square: proof the present ran */
-+					for (my = 0; my < 16; my++) {
-+						for (mx = 0; mx < 16; mx++) {
-+							px[(size_t)(my + 8) * stride + mx + 8] =
-+							    0xffffffffu;
-+						}
-+					}
-+				}
 +			}
 +		}
 +		break;
