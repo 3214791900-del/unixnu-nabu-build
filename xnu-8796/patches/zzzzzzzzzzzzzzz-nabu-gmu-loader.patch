@@ -1,0 +1,185 @@
+--- a/bsd/dev/nabu_gpu_power.c
++++ b/bsd/dev/nabu_gpu_power.c
+@@ -400,4 +400,182 @@
+ 	*(volatile unsigned int *)ml_io_map(rail->gdsc_base, NABU_GPU_CX_GDSC_REG_SIZE) = before;
+ 	return ETIMEDOUT;
+ }
+ 
++/* ---- GMU firmware loader; image lives in nabu_gpu_fw_a640.h ---- */
++#include "NativeAdrenoA640HwInit.h"
++#include "nabu_gpu_fw_a640.h"
++
++/*
++ * NABU GPU: load the Adreno 640 GMU firmware and release the core.
++ *
++ * The image is mainline's block container (a6xx_gmu.c:857):
++ *
++ *   struct block_header { u32 addr, size, type, value; u32 data[]; }
++ *
++ * Blocks whose address falls in the first 16K go to ITCM, blocks at 0x40000 to
++ * DTCM; both are written through the GMU register window, so they need no GPU
++ * address space at all. Blocks that land elsewhere (the ICACHE and dummy
++ * regions) are skipped here: they live in memory the GMU reaches through its
++ * MMU, which this port has not set up yet.
++ *
++ * Sequence (a6xx_gmu.c:311-340, 800-980):
++ *   - hold the core in reset
++ *   - write the ITCM/DTCM blocks
++ *   - program the ICACHE/DCACHE config
++ *   - release reset and wait for CM3_FW_INIT_RESULT bit 3
++ *
++ * SPDX-License-Identifier: MIT
++ */
++#include <sys/param.h>
++#include <sys/systm.h>
++#include <sys/errno.h>
++#include <machine/machine_routines.h>
++
++
++extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
++extern void delay(int);
++
++#define NABU_GMU_ITCM_BASE	0x00000000u
++#define NABU_GMU_DTCM_BASE	0x00040000u
++#define NABU_GMU_TCM_SPAN	0x00004000u	/* 16 KiB of ITCM and of DTCM */
++#define NABU_GMU_FW_READY_BIT	0x8u		/* a6xx_gmu.c:100 */
++
++static uint32_t nabu_gmu_reg_base;
++
++static inline uint32_t
++nabu_gmu_read(uint32_t reg)
++{
++	return *(volatile uint32_t *)(uintptr_t)(nabu_gmu_reg_base + reg * 4u);
++}
++
++static inline void
++nabu_gmu_write(uint32_t reg, uint32_t value)
++{
++	*(volatile uint32_t *)(uintptr_t)(nabu_gmu_reg_base + reg * 4u) = value;
++	__asm__ volatile("dsb sy" ::: "memory");
++}
++
++/* write count bytes of data into consecutive GMU registers starting at reg */
++static void
++nabu_gmu_write_bulk(uint32_t reg, const uint8_t *data, uint32_t count)
++{
++	uint32_t words = (count + 3u) / 4u;
++
++	for (uint32_t i = 0; i < words; i++) {
++		uint32_t word = 0;
++		for (uint32_t b = 0; b < 4u; b++) {
++			uint32_t idx = i * 4u + b;
++			if (idx < count) {
++				word |= (uint32_t)data[idx] << (8u * b);
++			}
++		}
++		nabu_gmu_write(reg + i, word);
++	}
++}
++
++/*
++ * Copy every ITCM/DTCM block of the container. Returns the number of blocks
++ * written, or -1 if the container does not parse.
++ */
++static int
++nabu_gmu_load_tcm(const uint8_t *fw, uint32_t size, uint32_t *icache_skipped)
++{
++	uint32_t off = 0;
++	int written = 0;
++
++	while (off + 16u <= size) {
++		uint32_t addr = *(const uint32_t *)(const void *)(fw + off);
++		uint32_t blk_size = *(const uint32_t *)(const void *)(fw + off + 4);
++		const uint8_t *data = fw + off + 16u;
++
++		if (off + 16u + blk_size > size) {
++			return -1;
++		}
++		if (blk_size != 0) {
++			if (addr >= NABU_GMU_ITCM_BASE &&
++			    addr < NABU_GMU_ITCM_BASE + NABU_GMU_TCM_SPAN) {
++				uint32_t reg = A640_GMU_CM3_ITCM_START +
++				    ((addr - NABU_GMU_ITCM_BASE) >> 2);
++				printf("NABU GMU: ITCM blk addr=%#x size=%#x -> reg %#x\n",
++				    addr, blk_size, reg);
++				nabu_gmu_write_bulk(reg, data, blk_size);
++				written++;
++			} else if (addr >= NABU_GMU_DTCM_BASE &&
++			    addr < NABU_GMU_DTCM_BASE + NABU_GMU_TCM_SPAN) {
++				uint32_t reg = A640_GMU_CM3_DTCM_START +
++				    ((addr - NABU_GMU_DTCM_BASE) >> 2);
++				printf("NABU GMU: DTCM blk addr=%#x size=%#x -> reg %#x\n",
++				    addr, blk_size, reg);
++				nabu_gmu_write_bulk(reg, data, blk_size);
++				written++;
++			} else {
++				printf("NABU GMU: skip blk addr=%#x size=%#x (needs GPU memory)\n",
++				    addr, blk_size);
++				if (icache_skipped) {
++					(*icache_skipped)++;
++				}
++			}
++		}
++		off += 16u + blk_size;
++	}
++	return written;
++}
++
++/*
++ * Load the firmware and start the core. Returns 0 only if the firmware reports
++ * itself ready.
++ */
++int
++nabu_gpu_gmu_load(void)
++{
++	vm_offset_t regs;
++	uint32_t skipped = 0;
++	int blocks;
++
++	regs = ml_io_map(NABU_GMU_KGSL_GMU_REG_BASE, NABU_GMU_KGSL_GMU_REG_SIZE);
++	if (!regs) {
++		printf("NABU GMU: cannot map the GMU window\n");
++		return ENOMEM;
++	}
++	nabu_gmu_reg_base = (uint32_t)regs;
++
++	printf("NABU GMU: firmware %u bytes, window %#x\n", NABU_A640_GMU_FW_BYTES, (uint32_t)regs);
++	printf("NABU GMU: cm3_cfg before=%#x sysreset=%#x fw_init=%#x\n",
++	    nabu_gmu_read(A640_GMU_CM3_CFG), nabu_gmu_read(A640_GMU_CM3_SYSRESET),
++	    nabu_gmu_read(A640_GMU_CM3_FW_INIT_RESULT));
++
++	/* hold the core in reset while the TCM is filled */
++	nabu_gmu_write(A640_GMU_CM3_SYSRESET, 1);
++	delay(10);
++
++	blocks = nabu_gmu_load_tcm(nabu_a640_gmu_fw, NABU_A640_GMU_FW_BYTES, &skipped);
++	if (blocks < 0) {
++		printf("NABU GMU: firmware container does not parse\n");
++		return EINVAL;
++	}
++	printf("NABU GMU: %d TCM blocks written, %u skipped\n", blocks, skipped);
++
++	/* a6xx_gmu.c:822 -- enable the instruction cache the firmware expects */
++	nabu_gmu_write(A640_GMU_ICACHE_CONFIG, 0x1);
++	nabu_gmu_write(A640_GMU_DCACHE_CONFIG, 0x1);
++
++	/* release the core (a6xx_gmu.c:333) */
++	nabu_gmu_write(A640_GMU_CM3_SYSRESET, 0);
++	delay(10);
++
++	uint32_t result = 0;
++	for (int i = 0; i < 200; i++) {
++		result = nabu_gmu_read(A640_GMU_CM3_FW_INIT_RESULT);
++		if (result & NABU_GMU_FW_READY_BIT) {
++			printf("NABU GMU: firmware ready, fw_init=%#x version=%#x\n",
++			    result, nabu_gmu_read(A640_GMU_CORE_FW_VERSION));
++			return 0;
++		}
++		delay(1);
++	}
++
++	printf("NABU GMU: firmware did not report ready, fw_init=%#x sysreset=%#x\n",
++	    result, nabu_gmu_read(A640_GMU_CM3_SYSRESET));
++	return ETIMEDOUT;
++}
++

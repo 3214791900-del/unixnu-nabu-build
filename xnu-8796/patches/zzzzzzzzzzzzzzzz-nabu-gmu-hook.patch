@@ -1,0 +1,36 @@
+--- a/bsd/dev/nabu_rpmh_gpu.c
++++ b/bsd/dev/nabu_rpmh_gpu.c
+@@ -17,8 +17,10 @@
+  *
+  * SPDX-License-Identifier: MIT
+  */
+ #if defined(ARM64_BOARD_CONFIG_NABU)
++
++extern int nabu_gpu_gmu_load(void);
+ #include <sys/param.h>
+ #include <sys/systm.h>
+ #include <sys/errno.h>
+ #include <machine/machine_routines.h>
+@@ -171,16 +173,21 @@
+ 		}
+ 		if (enabled == 4) {
+ 			steps |= NABU_GPU_STEP_CX_GDSC;
+ 		}
+-		if (enabled >= 5) {
++		if (enabled == 5) {
+ 			/* Same code path that powered CX on its own (probe=4); the full
+ 			 * nabu_gpu_power_up() sequence froze at the very same store, so it is not
+ 			 * used while the anomaly is unexplained. */
+ 			steps |= NABU_GPU_STEP_GX_GDSC;
+ 		}
+ 		(void)nabu_gpu_steps(steps);
+ 		printf("NABU GPU: ===== staged write end =====\n");
++		if (enabled >= 6) {
++			printf("NABU GPU: ===== GMU firmware load begin =====\n");
++			int gmu_error = nabu_gpu_gmu_load();
++			printf("NABU GPU: GMU firmware load -> %d\n", gmu_error);
++		}
+ 		return;
+ 	}
+ 	nabu_gpu_power_probe();
+ 	nabu_gpucc_report();
