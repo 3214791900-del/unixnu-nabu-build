@@ -18,6 +18,11 @@ DXB_REPO="https://github.com/blacktop/darwin-xnu-build"
 DXB_SHA="663906528d1cd5ea8fde7de6f16de73db9511549"
 KERNEL_CONFIG="${KERNEL_CONFIG:-DEVELOPMENT}"
 MACHINE_CONFIG="${MACHINE_CONFIG:-NABU}"
+# build.sh maps this to an xnu source tag and a KDK path; xnu-8796 is macOS 13.5.
+MACOS_VERSION="${MACOS_VERSION:-13.5}"
+export MACOS_VERSION
+export MACHINE_CONFIG
+export KERNEL_CONFIG
 WORK="${WORK:-$PWD/work}"
 
 log() { printf '\n=== %s ===\n' "$*"; }
@@ -137,7 +142,7 @@ sudo xcode-select -s "$XC" 2>/dev/null || true
 xcodebuild -version || true
 xcrun --find iig || true
 
-log "build (this takes 5-15 min)"
+log "build (this takes 5-15 min): MACOS_VERSION=$MACOS_VERSION MACHINE_CONFIG=$MACHINE_CONFIG KERNEL_CONFIG=$KERNEL_CONFIG"
 set -o pipefail
 MAKEFLAGS=-k bash build.sh 2>&1 | tee build.log
 rc=$?
