@@ -12,6 +12,9 @@ on:
         description: AppVeyor job id that produced the kernel
         default: 0wuml61hl4yc0m48
 
+permissions:
+  contents: write
+
 jobs:
   fetch:
     runs-on: ubuntu-24.04
