@@ -1,0 +1,54 @@
+name: fetch-appveyor-kernel
+
+# AppVeyor builds the kernel on macOS but stores artifacts on Cloudflare R2,
+# which is unreachable from the build host in China. GitHub's runners can reach
+# both, so this job pulls the artifact and commits it back into the repository
+# as base64 chunks, which the local machine then reassembles through the GitHub
+# API.
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: AppVeyor job id that produced the kernel
+        default: 0wuml61hl4yc0m48
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: nabu-gpu-port
+
+      - name: Download the artifact from AppVeyor
+        run: |
+          set -eux
+          job="${{ inputs.job_id }}"
+          url="https://ci.appveyor.com/api/buildjobs/$job/artifacts/work/out/kernel.development.nabu"
+          curl -sSL -o kernel.bin "$url"
+          ls -l kernel.bin
+          file kernel.bin
+          shasum -a 256 kernel.bin | tee kernel.sha256
+
+      - name: Split into base64 chunks
+        run: |
+          set -eux
+          mkdir -p ci-kernel
+          gzip -9 -c kernel.bin > kernel.gz
+          ls -l kernel.gz
+          base64 -w0 kernel.gz > kernel.b64
+          split -b 900000 kernel.b64 ci-kernel/part-
+          ls ci-kernel | head
+          ls ci-kernel | wc -l
+          sha256sum kernel.bin > ci-kernel/KERNEL.SHA256
+          echo "chunks=$(ls ci-kernel | wc -l)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit the chunks
+        run: |
+          set -eux
+          git config user.name "appveyor-relay"
+          git config user.email "relay@example.invalid"
+          git add -f ci-kernel
+          git commit -m "ci: relay the AppVeyor kernel (${{ inputs.job_id }})"
+          git push origin HEAD:nabu-gpu-port
