@@ -63,21 +63,52 @@ fi
 grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' build.sh || true
 
 log "tooling"
-# AppVeyor's Homebrew stalls for tens of minutes on a cold cache, and the
-# build only needs the Xcode toolchain, so give it a hard 3-minute cap and
-# kill the whole process tree if it overruns.
-echo "tooling: brew (capped at 3 min)"
-( brew install jq gum bash cmake ninja >/tmp/brew.log 2>&1; touch /tmp/brew.done ) &
-for i in $(seq 1 36); do
-	[ -f /tmp/brew.done ] && break
-	sleep 5
-done
-if [ ! -f /tmp/brew.done ]; then
-	echo "brew overran 3 min, killing it"
-	pkill -f "brew" 2>/dev/null || true
-	pkill -f "curl.*Homebrew" 2>/dev/null || true
+# build.sh refuses to run unless jq, gum, xcodes, cmake and ninja are all on
+# PATH, and its fallback is `brew install`, which stalls for tens of minutes on
+# AppVeyor's cold cache. Provide them directly instead:
+#   * jq and ninja are single-binary releases, fetched from GitHub
+#   * gum is only its interactive UI, and xcodes only installs Xcode (15.2 is
+#     already on the image), so both get no-op stubs, exactly like the GitHub
+#     workflow does for xcodes
+mkdir -p "$HOME/bin"
+export PATH="$HOME/bin:$PATH"
+
+stub() {
+	printf '#!/bin/sh\nexit 0\n' > "$HOME/bin/$1"
+	chmod +x "$HOME/bin/$1"
+	echo "stubbed $1"
+}
+stub xcodes
+stub gum
+
+fetch_bin() {
+	# fetch_bin <url> <name>
+	if curl -fsSL --retry 3 --max-time 180 -o "/tmp/$2.dl" "$1"; then
+		chmod +x "/tmp/$2.dl"
+		mv "/tmp/$2.dl" "$HOME/bin/$2"
+		echo "fetched $2"
+	else
+		echo "WARNING: could not fetch $2 from $1"
+	fi
+}
+
+command -v jq >/dev/null || fetch_bin \
+	"https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-macos-amd64" jq
+
+if ! command -v ninja >/dev/null; then
+	if curl -fsSL --retry 3 --max-time 180 -o /tmp/ninja.zip \
+		"https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-mac.zip"; then
+		unzip -oq /tmp/ninja.zip -d /tmp/ninja-dir && chmod +x /tmp/ninja-dir/ninja \
+			&& mv /tmp/ninja-dir/ninja "$HOME/bin/ninja" && echo "fetched ninja"
+	fi
 fi
-echo "tooling step done at $(date +%H:%M:%S) (brew done: $([ -f /tmp/brew.done ] && echo yes || echo no))"
+
+command -v cmake >/dev/null || echo "WARNING: cmake not on PATH"
+
+echo "tooling step done at $(date +%H:%M:%S); have:" \
+	"jq=$(command -v jq || echo no)" "gum=$(command -v gum || echo no)" \
+	"xcodes=$(command -v xcodes || echo no)" "cmake=$(command -v cmake || echo no)" \
+	"ninja=$(command -v ninja || echo no)"
 
 log "pick Xcode"
 XC=""
