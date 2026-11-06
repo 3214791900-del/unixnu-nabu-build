@@ -1,6 +1,6 @@
 --- a/bsd/dev/nabu_gpu_power.c
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -399,4 +399,208 @@
+@@ -399,4 +399,215 @@
  	    before, nabu_gpu_gdsc_read(rail->gdsc_base));
  	*(volatile unsigned int *)ml_io_map(rail->gdsc_base, NABU_GPU_CX_GDSC_REG_SIZE) = before;
  	return ETIMEDOUT;
@@ -187,9 +187,13 @@
 +}
 +
 +/*
-+ * nabugpuprobe>=6 runs the whole GPU bring-up from here: clocks, the two RPMh
-+ * votes and the CX rail first, then the GMU firmware. CX has to come up before
-+ * the GPUCC branch clocks or they never leave the halted state.
++ * nabugpuprobe>=6 runs the GPU bring-up: the CX rail and its RPMh votes first,
++ * then the GPUCC branch clocks, then the GMU firmware.
++ *
++ * The order matters. nabu_gpu_steps() enables the clocks before it powers CX,
++ * and a GPUCC branch that is enabled while its domain is off never leaves the
++ * halted state (CBCR bit 31 stays set), so the clock steps run twice: once for
++ * CX, once for the clocks.
 + */
 +static void
 +nabu_gpu_gmu_boot_hook(void)
@@ -200,9 +204,12 @@
 +	if (enabled < 6) {
 +		return;
 +	}
-+	printf("NABU GPU: ===== probe=6: clocks, rails, GMU =====\n");
-+	(void)nabu_gpu_steps(NABU_GPU_STEP_CLOCKS | NABU_GPU_STEP_ARC |
-+	    NABU_GPU_STEP_CX_GDSC);
++	printf("NABU GPU: ===== probe=6: CX rail first =====\n");
++	(void)nabu_gpu_steps(NABU_GPU_STEP_ARC | NABU_GPU_STEP_CX_GDSC);
++
++	printf("NABU GPU: ===== probe=6: GPUCC clocks =====\n");
++	(void)nabu_gpu_steps(NABU_GPU_STEP_CLOCKS);
++
 +	printf("NABU GPU: ===== GMU firmware load begin =====\n");
 +	int error = nabu_gpu_gmu_load();
 +	printf("NABU GPU: GMU firmware load -> %d\n", error);
