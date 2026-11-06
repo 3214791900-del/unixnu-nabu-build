@@ -228,3 +228,40 @@ fastboot boot nabu-xnu.img     # boot.img = BootShim + FD(3MB) + 64MB ramdisk
 - **全程只用 `fastboot boot`，不刷 `abl` / `xbl` / `bootloader`**（唯一写操作是把 payload 写进 `cust`）
 - `cust` 是出厂资源分区，格式化只丢出厂资源，系统可正常启动
 - 任何时刻长按电源键 10 秒可强制重启恢复
+
+---
+
+## 十五、项目状态（2026-11-07 更新）
+
+### 已经做到的（真机验证）
+
+| 项 | 状态 |
+|---|---|
+| ABL → shim → payload → XNU 启动链 | ✅ 完整跑通 |
+| 八核启动 | ✅ `8/8 CPUs initialized` |
+| 根分区挂载 | ✅ `hfs: mounted IOSRoot` |
+| 用户态 | ✅ launchd / backboardd 运行，60 Hz 提交帧 |
+| 显示管线 | ✅ AppleCLCD + IOMobileFramebuffer + IOSurface |
+| 画面内容 | ❌ 仍是黑帧（SpringBoard 未画出内容） |
+| GPU 时钟 | ✅ GPUCC 全部打开（关键：CX 必须先上电） |
+| GPU 的 GMU | 🟡 固件已解析、装载器已写、CM3 核心尚未跑起来 |
+
+### 构建方式（不依赖 GitHub Actions 的 macOS 额度）
+
+```
+AppVeyor（macos-sonoma 镜像 = macOS 14.2 + Xcode 15.2）
+  → 编译 xnu-8796（118 个补丁）
+  → 产物存在 Cloudflare R2
+  → 国内下载不了
+  → 用 .github/workflows/fetch-appveyor-kernel.yml 经 GitHub 跳板
+    把内核切块提交回仓库，本地用 GitHub API 取回
+```
+
+配置在 `appveyor.yml`，脚本在 `scripts/build-on-mac.sh`
+（自带 brew 超时、jq/ninja 直下、xcodes/gum 处理）。
+
+### 文档
+
+- `docs/小米平板5-刷iOS-完整资料.md` —— 完整技术资料（启动链、镜像格式、
+  踩坑记录、刷机流程、排障手册、GPU 寄存器表）
+- `RECOVERY-2026-11-05.md` —— 逐日开发日志与关键结论

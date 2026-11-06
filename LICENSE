@@ -1,0 +1,37 @@
+MIT License
+
+Copyright (c) 2026 3214791900-del
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Third-party material
+--------------------
+
+* The patches under xnu-8796/patches/ modify Apple's XNU source, which is
+  distributed under the Apple Public Source License 2.0. Those modifications
+  are contributed back under the APSL 2.0; see
+  https://opensource.apple.com/license/apsl/.
+* bsd/dev/nabu_gpu_fw_a640.h embeds a640_gmu.bin, the Adreno 640 GMU firmware
+  taken from the vendor image of the Xiaomi Pad 5. It is redistributed here for
+  interoperability with the hardware the project targets and remains the
+  property of its original owner.
+* Everything else (the shim, the build glue, the CI configuration, the
+  documentation) is the MIT-licensed work of this repository's authors.
