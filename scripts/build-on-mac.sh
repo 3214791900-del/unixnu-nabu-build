@@ -65,28 +65,30 @@ grep -c 'VALID_ARCHS="x86_64 arm64e arm64"' build.sh || true
 log "tooling"
 # build.sh refuses to run unless jq, gum, xcodes, cmake and ninja are all on
 # PATH, and its fallback is `brew install`, which stalls for tens of minutes on
-# AppVeyor's cold cache. Provide them directly instead:
-#   * jq and ninja are single-binary releases, fetched from GitHub
-#   * gum is only its interactive UI, and xcodes only installs Xcode (15.2 is
-#     already on the image), so both get no-op stubs, exactly like the GitHub
-#     workflow does for xcodes
-mkdir -p "$HOME/bin"
-export PATH="$HOME/bin:$PATH"
-
-stub() {
-	printf '#!/bin/sh\nexit 0\n' > "$HOME/bin/$1"
-	chmod +x "$HOME/bin/$1"
-	echo "stubbed $1"
+# AppVeyor's cold cache. It then REPLACES PATH with the Xcode toolchain plus
+# /usr/local/bin, so everything has to live there or it vanishes mid-build:
+#   * jq and ninja are single-binary releases, gum a tarball, all from GitHub
+#   * xcodes only installs Xcode, and 15.2 is already on the image, so it gets
+#     a no-op stub exactly like the GitHub workflow does
+TOOLBIN=/usr/local/bin
+if [ ! -w "$TOOLBIN" ]; then
+	SUDO=sudo
+else
+	SUDO=
+fi
+install_tool() {
+	$SUDO install -m 0755 "$1" "$TOOLBIN/$2" && echo "installed $2 -> $TOOLBIN"
 }
-stub xcodes
-stub gum
+
+printf '#!/bin/sh\nexit 0\n' > /tmp/xcodes-stub
+chmod +x /tmp/xcodes-stub
+install_tool /tmp/xcodes-stub xcodes
 
 fetch_bin() {
 	# fetch_bin <url> <name>
 	if curl -fsSL --retry 3 --max-time 180 -o "/tmp/$2.dl" "$1"; then
 		chmod +x "/tmp/$2.dl"
-		mv "/tmp/$2.dl" "$HOME/bin/$2"
-		echo "fetched $2"
+		install_tool "/tmp/$2.dl" "$2"
 	else
 		echo "WARNING: could not fetch $2 from $1"
 	fi
@@ -98,13 +100,20 @@ command -v jq >/dev/null || fetch_bin \
 if ! command -v ninja >/dev/null; then
 	if curl -fsSL --retry 3 --max-time 180 -o /tmp/ninja.zip \
 		"https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-mac.zip"; then
-		unzip -oq /tmp/ninja.zip -d /tmp/ninja-dir && chmod +x /tmp/ninja-dir/ninja \
-			&& mv /tmp/ninja-dir/ninja "$HOME/bin/ninja" && echo "fetched ninja"
+		unzip -oq /tmp/ninja.zip -d /tmp/ninja-dir && install_tool /tmp/ninja-dir/ninja ninja
 	fi
 fi
 
-command -v cmake >/dev/null || echo "WARNING: cmake not on PATH"
+if ! command -v gum >/dev/null; then
+	if curl -fsSL --retry 3 --max-time 180 -o /tmp/gum.tgz \
+		"https://github.com/charmbracelet/gum/releases/download/v0.14.5/gum_0.14.5_Darwin_x86_64.tar.gz"; then
+		mkdir -p /tmp/gum-dir && tar -xzf /tmp/gum.tgz -C /tmp/gum-dir \
+			&& install_tool /tmp/gum-dir/gum gum
+	fi
+fi
+command -v gum >/dev/null || { echo "gum unavailable, stubbing"; install_tool /tmp/xcodes-stub gum; }
 
+export PATH="$TOOLBIN:$PATH"
 echo "tooling step done at $(date +%H:%M:%S); have:" \
 	"jq=$(command -v jq || echo no)" "gum=$(command -v gum || echo no)" \
 	"xcodes=$(command -v xcodes || echo no)" "cmake=$(command -v cmake || echo no)" \
