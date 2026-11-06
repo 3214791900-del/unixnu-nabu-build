@@ -1,6 +1,6 @@
 --- a/bsd/dev/nabu_gpu_power.c
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -399,4 +399,209 @@
+@@ -399,4 +399,208 @@
  	    before, nabu_gpu_gdsc_read(rail->gdsc_base));
  	*(volatile unsigned int *)ml_io_map(rail->gdsc_base, NABU_GPU_CX_GDSC_REG_SIZE) = before;
  	return ETIMEDOUT;
@@ -52,13 +52,13 @@
 +static inline uint32_t
 +nabu_gmu_read(uint32_t reg)
 +{
-+	return *(volatile uint32_t *)(uintptr_t)(nabu_gmu_reg_base + reg * 4u);
++	return *(volatile uint32_t *)(uintptr_t)(nabu_gmu_reg_base + reg);
 +}
 +
 +static inline void
 +nabu_gmu_write(uint32_t reg, uint32_t value)
 +{
-+	*(volatile uint32_t *)(uintptr_t)(nabu_gmu_reg_base + reg * 4u) = value;
++	*(volatile uint32_t *)(uintptr_t)(nabu_gmu_reg_base + reg) = value;
 +	__asm__ volatile("dsb sy" ::: "memory");
 +}
 +
@@ -76,7 +76,7 @@
 +				word |= (uint32_t)data[idx] << (8u * b);
 +			}
 +		}
-+		nabu_gmu_write(reg + i, word);
++		nabu_gmu_write(reg + i * 4u, word);
 +	}
 +}
 +
@@ -187,10 +187,9 @@
 +}
 +
 +/*
-+ * nabugpuprobe>=6 runs the whole GPU bring-up from here instead of from
-+ * nabu_rpmh_gpu.c: clocks, the two RPMh votes and the CX rail first, then the
-+ * GMU firmware. Self-contained on purpose -- one file to patch, one place to
-+ * read the order.
++ * nabugpuprobe>=6 runs the whole GPU bring-up from here: clocks, the two RPMh
++ * votes and the CX rail first, then the GMU firmware. CX has to come up before
++ * the GPUCC branch clocks or they never leave the halted state.
 + */
 +static void
 +nabu_gpu_gmu_boot_hook(void)
