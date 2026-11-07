@@ -1,6 +1,6 @@
 --- a/bsd/dev/nabu_gpu_power.c
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -399,4 +399,215 @@
+@@ -399,4 +399,220 @@
  	    before, nabu_gpu_gdsc_read(rail->gdsc_base));
  	*(volatile unsigned int *)ml_io_map(rail->gdsc_base, NABU_GPU_CX_GDSC_REG_SIZE) = before;
  	return ETIMEDOUT;
@@ -213,6 +213,11 @@
 +	printf("NABU GPU: ===== GMU firmware load begin =====\n");
 +	int error = nabu_gpu_gmu_load();
 +	printf("NABU GPU: GMU firmware load -> %d\n", error);
++	/* The console does not scroll and the log ring is flooded by userland
++	 * right afterwards, so put the result where it cannot be missed: the tail
++	 * of the screen and the last lines of the ring. */
++	panic("NABU GMU probe=6: nabu_gpu_gmu_load()=%d%s", error,
++	    error == 0 ? " (firmware reported ready)" : " (firmware NOT ready)");
 +	printf("NABU GPU: ===== probe=6 done =====\n");
 +}
 +STARTUP(EARLY_BOOT, STARTUP_RANK_LAST, nabu_gpu_gmu_boot_hook);
