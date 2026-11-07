@@ -144,7 +144,11 @@ xcrun --find iig || true
 
 log "build (this takes 5-15 min): MACOS_VERSION=$MACOS_VERSION MACHINE_CONFIG=$MACHINE_CONFIG KERNEL_CONFIG=$KERNEL_CONFIG"
 set -o pipefail
-MAKEFLAGS=-k bash build.sh 2>&1 | tee build.log
+# AppVeyor kills the worker when the peak memory of a fully parallel xnu
+# build spikes, so cap the job count: slower, but it survives.
+JOBS="${JOBS:-3}"
+echo "make jobs: ${JOBS}"
+MAKEFLAGS="-k -j${JOBS}" bash build.sh 2>&1 | tee build.log
 rc=$?
 echo "=== build.sh exit: $rc ==="
 if [ "$rc" -ne 0 ]; then
