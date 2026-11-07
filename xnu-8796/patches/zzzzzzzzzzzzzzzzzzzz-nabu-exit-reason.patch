@@ -1,0 +1,23 @@
+--- a/bsd/kern/kern_exit.c
++++ b/bsd/kern/kern_exit.c
+@@ -1797,8 +1797,20 @@
+ 	} else {
+ 		printf("pid %d exited -- exit reason namespace %d subcode 0x%llx, description %s\n", proc_getpid(p),
+ 		    p->p_exit_reason->osr_namespace, p->p_exit_reason->osr_code, exit_reason_desc ?
+ 		    exit_reason_desc : "none");
++		/*
++		 * NABU: the console does not scroll and its lines are clipped at the
++		 * right edge, so the description above is unreadable exactly when it
++		 * matters. Repeat the fields on their own short lines so they land in
++		 * the log ring and on the screen.
++		 */
++		printf("NABU EXIT: %s pid=%d ns=%d code=%d\n", p->p_name,
++		    proc_getpid(p), p->p_exit_reason->osr_namespace,
++		    p->p_exit_reason->osr_code);
++		if (exit_reason_desc != NULL) {
++			printf("NABU EXIT DESC: %s\n", exit_reason_desc);
++		}
+ 	}
+ 
+ 	const char *prefix_str;
+ 	char prefix_str_buf[128];
