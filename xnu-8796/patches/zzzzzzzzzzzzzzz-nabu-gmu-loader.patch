@@ -1,6 +1,6 @@
 --- a/bsd/dev/nabu_gpu_power.c
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -399,4 +399,220 @@
+@@ -399,4 +399,263 @@
  	    before, nabu_gpu_gdsc_read(rail->gdsc_base));
  	*(volatile unsigned int *)ml_io_map(rail->gdsc_base, NABU_GPU_CX_GDSC_REG_SIZE) = before;
  	return ETIMEDOUT;
@@ -9,6 +9,9 @@
 +/* ---- GMU firmware loader; image lives in nabu_gpu_fw_a640.h ---- */
 +#include <pexpert/pexpert.h>
 +#include <kern/startup.h>
++#include <sys/vnode.h>
++#include <sys/namei.h>
++#include <sys/vnode_internal.h>
 +#include "NativeAdrenoA640HwInit.h"
 +#include "nabu_gpu_fw_a640.h"
 +
@@ -214,10 +217,50 @@
 +	int error = nabu_gpu_gmu_load();
 +	printf("NABU GPU: GMU firmware load -> %d\n", error);
 +	/* The console does not scroll and the log ring is flooded by userland
-+	 * right afterwards, so put the result where it cannot be missed: the tail
-+	 * of the screen and the last lines of the ring. */
++	 * right afterwards, so put the result where it cannot be missed. */
 +	panic("NABU GMU probe=6: nabu_gpu_gmu_load()=%d%s", error,
 +	    error == 0 ? " (firmware reported ready)" : " (firmware NOT ready)");
-+	printf("NABU GPU: ===== probe=6 done =====\n");
 +}
 +STARTUP(EARLY_BOOT, STARTUP_RANK_LAST, nabu_gpu_gmu_boot_hook);
++
++/*
++ * NABU: is the dyld shared cache actually on our root volume?
++ *
++ * launchd_cache_loader dies before anything readable appears, and the dyld
++ * error is clipped by the console, so look at the files directly. bsd_init
++ * calls this right after vfs_mountroot().
++ */
++void
++nabu_cache_probe(void)
++{
++	static const char *const paths[] = {
++		"/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e",
++		"/System/Library/dyld/dyld_shared_cache_arm64e",
++		"/usr/lib/dyld",
++		"/sbin/launchd",
++		"/System/Library/Caches/com.apple.dyld",
++	};
++	vnode_t vp;
++	int error;
++
++	for (unsigned i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
++		vp = NULLVP;
++		error = vnode_lookup(paths[i], 0, &vp, vfs_context_current());
++		if (error == 0 && vp != NULLVP) {
++			vnode_attr va;
++			VATTR_INIT(&va);
++			VATTR_WANTED(&va, va_data_size);
++			VATTR_WANTED(&va, va_mode);
++			if (vnode_getattr(vp, &va, vfs_context_current()) == 0) {
++				printf("NABU CACHE: OK   %s size=%lld mode=%#o\n",
++				    paths[i], (long long)va.va_data_size,
++				    (unsigned)va.va_mode);
++			} else {
++				printf("NABU CACHE: OK   %s (getattr failed)\n", paths[i]);
++			}
++			vnode_put(vp);
++		} else {
++			printf("NABU CACHE: MISS %s error=%d\n", paths[i], error);
++		}
++	}
++}
