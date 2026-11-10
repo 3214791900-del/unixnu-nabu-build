@@ -404,7 +404,7 @@
 +	char line[96];
 +	vnode_t vp;
 +	int error;
-+	int y = 200;
++	int y = 1400;
 +
 +	for (unsigned i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
 +		vp = NULLVP;
