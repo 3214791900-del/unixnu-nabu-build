@@ -133,8 +133,8 @@
 +nabu_fb_text(int x, int y, const char *text, uint32_t colour, int scale)
 +{
 +	if (nabu_fb_base == NULL) {
-+		nabu_fb_base = (uint32_t *)ml_io_map_unmappable(NABU_FB_BASE,
-+		    (vm_size_t)NABU_FB_STRIDE * 2560, NABU_FB_WCOMB);
++		nabu_fb_base = (uint32_t *)ml_io_map(NABU_FB_BASE,
++		    (vm_size_t)NABU_FB_STRIDE * 2560);
 +		if (nabu_fb_base == NULL) {
 +			return;
 +		}
@@ -205,8 +205,6 @@
 +
 +
 +extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
-+#define NABU_FB_WCOMB 0x4u   /* VM_WIMG_WCOMB: same class the console uses */
-+extern vm_offset_t ml_io_map_unmappable(vm_offset_t, vm_size_t, unsigned int);
 +extern void delay(int);
 +
 +#define NABU_GMU_ITCM_BASE	0x00000000u
