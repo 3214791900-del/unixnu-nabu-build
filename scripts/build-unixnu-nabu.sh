@@ -68,7 +68,8 @@ if [ ! -f ipsw-small.zip ]; then
   python3 source-ci/prepare_ipsw_input.py --ipsw ipsw.ipsw --output ipsw-small.zip
   rm -f ipsw.ipsw
 fi
-export UNIXNU_IPSW="$WORK/ipsw-small.zip"
+export UNIXNU_IPSW="/ipsw-small.zip"
+export UNIXNU_CI_CACHE="$WORK/ci-cache"
 echo "UNIXNU_IPSW=$UNIXNU_IPSW"
 
 echo "=== 4. UniXNU core"
@@ -110,6 +111,48 @@ echo "=== 4c. relax the upstream XNU patch loop"
 # The device series predates a context change in config/MASTER.arm64, and a
 # patch that is already in the tree must not be fatal.
 bash scripts/patch-upstream-xnu-series.sh unixnu || true
+echo "=== 4d. point the DriverKit header fetch at the committed cache"
+# prepare-xnu-source.py calls api.github.com twice; hosted runners hit HTTP 403 on
+# the shared anonymous quota. Patch it to read the committed listings instead.
+python3 - <<'PY'
+import pathlib
+
+script = pathlib.Path('unixnu/scripts/prepare-xnu-source.py')
+if not script.is_file():
+    print('prepare-xnu-source.py missing')
+    raise SystemExit(0)
+
+text = script.read_text()
+pairs = (
+    ("    if not CACHE.exists():\n"
+     "        CACHE.parent.mkdir(parents=True, exist_ok=True)\n"
+     "        CACHE.write_bytes(fetch(URL))\n",
+     "    if not CACHE.exists():\n"
+     "        seed = os.environ.get('UNIXNU_CI_CACHE')\n"
+     "        local = Path(seed) / CACHE.name if seed else None\n"
+     "        CACHE.parent.mkdir(parents=True, exist_ok=True)\n"
+     "        CACHE.write_bytes(local.read_bytes() if local is not None and local.is_file() else fetch(URL))\n"),
+    ("    if not crypto_cache.exists():\n"
+     "        crypto_url = URL.replace('/DriverKit?', '/DriverKit/crypto?')\n"
+     "        crypto_cache.write_bytes(fetch(crypto_url))\n",
+     "    if not crypto_cache.exists():\n"
+     "        crypto_url = URL.replace('/DriverKit?', '/DriverKit/crypto?')\n"
+     "        seed = os.environ.get('UNIXNU_CI_CACHE')\n"
+     "        local = Path(seed) / crypto_cache.name if seed else None\n"
+     "        crypto_cache.parent.mkdir(parents=True, exist_ok=True)\n"
+     "        crypto_cache.write_bytes(local.read_bytes() if local is not None and local.is_file() else fetch(crypto_url))\n"),
+)
+
+for old, new in pairs:
+    if old in text:
+        text = text.replace(old, new, 1)
+        print('patched one fetch site')
+    else:
+        print('fetch site already patched or moved')
+
+script.write_text(text)
+PY
+
 echo "=== 5. assemble the source tree"
 python3 source-ci/prepare_source.py \
   --upstream unixnu \
