@@ -1,0 +1,16 @@
+--- a/iokit/IOKit/IORPC.h
++++ b/iokit/IOKit/IORPC.h
+@@ -223,8 +223,13 @@
+ 	IORPCMessageMach * message;
+ 	IORPCMessageMach * reply;
+ 	uint32_t           sendSize;
+ 	uint32_t           replySize;
++#ifdef KERNEL
++	/* Newer DriverKit .iig files initialise this field; the kernel-side RPC
++	 * copy is unused by nabu but the generated code needs the member. */
++	IORPCMessage     * kernelContent;
++#endif /* KERNEL */
+ };
+ typedef struct IORPC IORPC;
+ 
+ enum {
