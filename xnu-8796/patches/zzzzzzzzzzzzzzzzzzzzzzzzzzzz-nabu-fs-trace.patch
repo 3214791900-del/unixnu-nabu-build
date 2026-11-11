@@ -1,0 +1,78 @@
+diff --git a/bsd/vfs/vfs_lookup.c b/bsd/vfs/vfs_lookup.c
+index a05c8e7..f500fe5 100644
+--- a/bsd/vfs/vfs_lookup.c
++++ b/bsd/vfs/vfs_lookup.c
+@@ -188,6 +188,73 @@ namei(struct nameidata *ndp)
+ 	int32_t old_count = 0;
+ 	bool dp_has_iocount = false;
+ 
++#if defined(NABU) || defined(__arm64__)
++/*
++ * NABU: opt-in path-lookup tracing for early-boot debugging. Gated by the boot
++ * argument nabu-fstrace=1 and limited to the cache/ignition paths we chase, so
++ * a normal boot stays byte-for-byte quiet.
++ */
++extern int PE_parse_boot_argn(const char *arg_string, void *arg_ptr, int arg_size);
++int nabu_fs_trace = 0;
++static int nabu_fs_trace_ready = 0;
++
++static int
++nabu_fs_trace_contains(const char *haystack, const char *needle)
++{
++	size_t n = 0;
++
++	while (needle[n] != '\0') {
++		n++;
++	}
++	for (; *haystack != '\0'; haystack++) {
++		size_t i = 0;
++		while (i < n && haystack[i] == needle[i]) {
++			i++;
++		}
++		if (i == n) {
++			return 1;
++		}
++	}
++	return 0;
++}
++
++static int
++nabu_fs_trace_match(const char *path)
++{
++	static const char *const needles[] = {
++		"dyld", "Caches", "ignition", "launchd", "System/Library"
++	};
++	size_t i;
++
++	if (!nabu_fs_trace_ready) {
++		int value = 0;
++		PE_parse_boot_argn("nabu-fstrace", &value, sizeof(value));
++		nabu_fs_trace = value;
++		nabu_fs_trace_ready = 1;
++	}
++	if (!nabu_fs_trace || path == NULL) {
++		return 0;
++	}
++	for (i = 0; i < sizeof(needles) / sizeof(needles[0]); i++) {
++		if (nabu_fs_trace_contains(path, needles[i])) {
++			return 1;
++		}
++	}
++	return 0;
++}
++#endif /* NABU */
++
++	bool dp_has_iocount = false;
++
++#if defined(NABU) || defined(__arm64__)
++	if (nabu_fs_trace_match(ndp->ni_dirp)) {
++		printf("NABU FS: pid=%d(%s) %s\n",
++		    (p != NULL) ? proc_getpid(p) : -1,
++		    (p != NULL) ? p->p_comm : "?",
++		    ndp->ni_dirp);
++	}
++#endif
++
+ #if DIAGNOSTIC
+ 	if (!vfs_context_ucred(ctx) || !p) {
+ 		panic("namei: bad cred/proc");
