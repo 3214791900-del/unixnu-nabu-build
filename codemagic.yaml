@@ -13,7 +13,6 @@ workflows:
     instance_type: mac_mini_m1
     max_build_duration: 120
     environment:
-      xcode: 15.4
       vars:
         # xnu-8796.141.3 is the tag that matches the iPadOS 16.6.1 userland.
         MACOS_VERSION: "13.5"
@@ -26,14 +25,13 @@ workflows:
       - name: Toolchain check
         script: |
           set -e
-          xcodebuild -version
-          xcrun --sdk macosx --show-sdk-version
           sw_vers
-          which jq ninja cmake python3 || true
+          /usr/bin/xcodebuild -version || true
+          ls -1 /Applications | grep -i xcode || true
       - name: Install missing tools
         script: |
           set -e
-          for tool in jq ninja cmake; do
+          for tool in jq ninja cmake gum; do
             command -v "$tool" >/dev/null 2>&1 || brew install "$tool" || true
           done
           command -v jq || brew install jq
@@ -46,10 +44,31 @@ workflows:
         script: |
           set -e
           mkdir -p build-artifacts
-          find . -name "kernel.development.nabu" -o -name "kernel.*.nabu" | head -20
           find . -name "kernel.development.nabu" -exec cp {} build-artifacts/ \; || true
+          find build-artifacts -type f -exec shasum -a 256 {} \; || true
           ls -la build-artifacts
     artifacts:
       - build-artifacts/**
       - unixnu-nabu-build/out/**
       - out/**
+
+  probe-xcode:
+    name: probe xcode versions
+    instance_type: mac_mini_m1
+    max_build_duration: 15
+    scripts:
+      - name: list xcodes
+        script: |
+          echo "=== macOS ==="
+          sw_vers
+          echo "=== installed Xcodes ==="
+          ls -1 /Applications | grep -i xcode || true
+          echo "=== active ==="
+          /usr/bin/xcodebuild -version || true
+          echo "=== every Xcode bundle ==="
+          for app in /Applications/Xcode*.app; do
+            echo "$app"
+            "$app/Contents/Developer/usr/bin/xcodebuild" -version 2>/dev/null || true
+          done
+          echo "=== xcodes tool ==="
+          (command -v xcodes && xcodes list 2>/dev/null | head -30) || echo "no xcodes tool"
