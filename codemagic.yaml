@@ -16,8 +16,8 @@ workflows:
       vars:
         # xnu-8796.141.3 is the tag that matches the iPadOS 16.6.1 userland.
         MACOS_VERSION: "13.5"
-        JOBS: "1"
-        KERNEL_CONFIG: "DEVELOPMENT"
+        JOBS: "2"
+        KERNEL_CONFIG: "RELEASE"
         MACHINE_CONFIG: "NABU"
     cache:
       cache_paths:
