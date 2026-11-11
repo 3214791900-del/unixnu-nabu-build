@@ -186,9 +186,12 @@ if ! ./unixnu build kernel 2>&1 | tail -40; then
   for log in out/nabu/logs/kernel-bootstrap.log out/nabu/logs/kernel.log; do
     if [ -f "$log" ]; then
       echo "--- $log (errors) ---"
-      grep -nE "error:|Error [0-9]|\*\*\*|undefined|No such file" "$log" | tail -40 || true
+      grep -nE "error:|Error [0-9]|\*\*\*|undefined|No such file" "$log" | tail -20 || true
+      echo "--- $log (context before the first failure) ---"
+      awk 'BEGIN{n=0} /\*\*\*/ && n==0 { n=NR } { lines[NR]=$0 }
+           END { s = (n > 40 ? n - 40 : 1); for (i = s; i < n; i++) print lines[i]; print ">>> " lines[n] }' "$log" || true
       echo "--- $log (tail) ---"
-      tail -30 "$log"
+      tail -20 "$log" || true
     fi
   done
   exit 1
