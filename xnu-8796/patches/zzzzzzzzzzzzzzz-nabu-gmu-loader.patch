@@ -1,6 +1,6 @@
 --- a/bsd/dev/nabu_gpu_power.c
 +++ b/bsd/dev/nabu_gpu_power.c
-@@ -399,4 +399,267 @@
+@@ -399,4 +399,268 @@
  	    before, nabu_gpu_gdsc_read(rail->gdsc_base));
  	*(volatile unsigned int *)ml_io_map(rail->gdsc_base, NABU_GPU_CX_GDSC_REG_SIZE) = before;
  	return ETIMEDOUT;
@@ -235,11 +235,12 @@
 +nabu_cache_probe(void)
 +{
 +	static const char *const paths[] = {
-+		"/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64e",
-+		"/System/Library/dyld/dyld_shared_cache_arm64e",
++		"/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64",
++		"/System/Library/Caches/com.apple.dyld/dyld_shared_cache_arm64.11",
++		"/System/Library/Caches/com.apple.dyld",
 +		"/usr/lib/dyld",
 +		"/sbin/launchd",
-+		"/System/Library/Caches/com.apple.dyld",
++		"/System/Library/LaunchDaemons",
 +	};
 +	char line[96];
 +	vnode_t vp;
@@ -247,7 +248,7 @@
 +
 +	for (unsigned i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
 +		vp = NULLVP;
-+		error = vnode_lookup(paths[i], 0, &vp, vfs_context_current());
++		error = vnode_lookupat(paths[i], 0, &vp, vfs_context_current(), rootvnode);
 +		if (error == 0 && vp != NULLVP) {
 +			struct vnode_attr va;
 +			VATTR_INIT(&va);
