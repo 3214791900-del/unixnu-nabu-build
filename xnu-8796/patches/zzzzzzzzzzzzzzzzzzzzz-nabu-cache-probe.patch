@@ -1,10 +1,18 @@
 --- a/bsd/kern/bsd_init.c
 +++ b/bsd/kern/bsd_init.c
-@@ -870,5 +870,7 @@
- #if defined(NABU)
- 			kprintf("NABU BOOT: vfs_mountroot() = 0, root mounted\n");
+@@ -867,8 +867,15 @@
  #endif
-+			extern void nabu_cache_probe(void);
-+			nabu_cache_probe();
+ 
+ 		bsd_init_kprintf("vfs_mountroot\n");
+ 		if (0 == (err = vfs_mountroot())) {
++			/* NABU: opt-in probe; it must run after the root vnode exists,
++			 * otherwise every lookup fails with ENOENT. */
++			int nabu_probe = 0;
++			if (PE_parse_boot_argn("nabucacheprobe", &nabu_probe, sizeof(nabu_probe)) && nabu_probe != 0) {
++				extern void nabu_cache_probe(void);
++				nabu_cache_probe();
++			}
  			break;
  		}
+ 		rootdevice[0] = '\0';
+ #if CONFIG_NETBOOT
