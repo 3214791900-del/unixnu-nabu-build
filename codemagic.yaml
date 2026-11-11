@@ -76,7 +76,7 @@ workflows:
     max_build_duration: 120
     environment:
       vars:
-        UNIXNU_REF: "6b24c06ce487e8c48105b7b4635d0d97f7ec6cdd"
+        UNIXNU_REF: "245aca1a9ec5b730b1cad80fade295800d2981f1"
         PROFILE: "nabu_ufs_readonly_defconfig"
     scripts:
       - name: Toolchain check

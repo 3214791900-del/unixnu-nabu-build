@@ -9,7 +9,7 @@
 # the four members the kernel build needs and drops the rest.
 set -euo pipefail
 
-UNIXNU_REF="${UNIXNU_REF:-6b24c06ce487e8c48105b7b4635d0d97f7ec6cdd}"
+UNIXNU_REF="${UNIXNU_REF:-245aca1a9ec5b730b1cad80fade295800d2981f1}"
 PROFILE="${PROFILE:-nabu_ufs_readonly_defconfig}"
 IPSW_URL="${IPSW_URL:-https://updates.cdn-apple.com/2024FallFCS/fullrestores/062-78914/A081E8C4-D00A-4FC5-A650-A42EA1726236/iPad_10.2_17.7_21H16_Restore.ipsw}"
 WORK="${CM_BUILD_DIR:-$PWD}"
@@ -30,22 +30,6 @@ rm -rf batch source-ci
 git clone --depth 1 https://github.com/zzweiqing/hackios-mac-batch.git batch
 cp -R batch/source-ci ./source-ci
 cp -R nabu-device/source-ci/. ./source-ci/
-
-echo "=== 2c. repin the upstream revision this device repository expects"
-# prepare_source.py hard-codes the UniXNU revision, but the device feeds use the
-# newer "soc" source kind that only later revisions understand.
-python3 - <<'PY'
-import pathlib
-p = pathlib.Path('source-ci/prepare_source.py')
-t = p.read_text()
-old = "UPSTREAM = '245aca1a9ec5b730b1cad80fade295800d2981f1'"
-new = "UPSTREAM = '6b24c06ce487e8c48105b7b4635d0d97f7ec6cdd'"
-if old in t:
-    p.write_text(t.replace(old, new, 1))
-    print('prepare_source.py repinned')
-else:
-    print('UPSTREAM anchor not found; leaving as is')
-PY
 
 echo "=== 2b. reset board.toml to the bootstrap base"
 # The published board.toml describes the proven GPU profile. prepare_source.py
@@ -88,6 +72,21 @@ rm -rf unixnu
 git clone --quiet --no-checkout https://github.com/UniXNU/UniXNU.git unixnu
 git -C unixnu fetch --quiet origin "$UNIXNU_REF"
 git -C unixnu checkout --quiet --detach "$UNIXNU_REF"
+
+echo "=== 4b. teach this revision the 'soc' feed kind"
+# The device feeds declare a "soc" source kind; this revision predates it.
+python3 - <<'PY'
+import pathlib
+p = pathlib.Path('unixnu/scripts/unixnu/config.py')
+t = p.read_text()
+old = "'refer': 'refer'}"
+new = "'refer': 'refer', 'soc': 'socs'}"
+if old in t and "'soc'" not in t:
+    p.write_text(t.replace(old, new, 1))
+    print('config.py: soc kind added')
+else:
+    print('config.py: soc kind already present or anchor missing')
+PY
 
 echo "=== 5. assemble the source tree"
 python3 source-ci/prepare_source.py \
