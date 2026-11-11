@@ -16,7 +16,7 @@ workflows:
       vars:
         # xnu-8796.141.3 is the tag that matches the iPadOS 16.6.1 userland.
         MACOS_VERSION: "13.5"
-        JOBS: "2"
+        JOBS: "1"
         KERNEL_CONFIG: "DEVELOPMENT"
         MACHINE_CONFIG: "NABU"
     cache:
@@ -38,9 +38,18 @@ workflows:
           command -v jq || brew install jq
       - name: Build kernel
         script: |
-          set -e
           cd "$CM_BUILD_DIR"
-          bash scripts/build-on-mac.sh
+          bash scripts/build-on-mac.sh || rc=$?
+          if [ "${rc:-0}" != "0" ]; then
+            echo "=== BUILD FAILED (rc=$rc) ==="
+            for f in build.log work/dxb/build.log unixnu-nabu-build/build.log; do
+              if [ -f "$f" ]; then
+                echo "--- $f : unique errors ---"
+                grep -a -E "error:|\\*\\*\\* \\[|Undefined symbols|clang: error|ld: " "$f" | sort -u | head -40
+              fi
+            done
+            exit 1
+          fi
       - name: Collect artifacts
         script: |
           set -e
