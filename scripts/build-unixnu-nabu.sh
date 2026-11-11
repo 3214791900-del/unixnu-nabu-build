@@ -22,10 +22,14 @@ echo "=== 1. device repository"
 rm -rf nabu-device
 git clone --depth 1 https://github.com/zzweiqing/UniXNU-nabu.git nabu-device
 
-echo "=== 2. source-ci helpers (hackios-mac-batch)"
+echo "=== 2. source-ci helpers"
+# prepare_source.py and the qualification scripts come from the batch repository,
+# prepare_ipsw_input.py and the board patches from the device repository; the
+# device copy wins where both exist.
 rm -rf batch source-ci
 git clone --depth 1 https://github.com/zzweiqing/hackios-mac-batch.git batch
 cp -R batch/source-ci ./source-ci
+cp -R nabu-device/source-ci/. ./source-ci/
 
 echo "=== 3. Apple IPSW -> small input"
 if [ ! -f ipsw-small.zip ]; then
