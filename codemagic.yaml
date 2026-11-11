@@ -11,7 +11,7 @@ workflows:
   nabu-xnu:
     name: XNU 8796 for nabu
     instance_type: mac_mini_m1
-    max_build_duration: 180
+    max_build_duration: 120
     environment:
       vars:
         # xnu-8796.141.3 is the tag that matches the iPadOS 16.6.1 userland.
