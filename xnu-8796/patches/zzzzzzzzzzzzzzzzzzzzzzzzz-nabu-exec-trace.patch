@@ -1,0 +1,16 @@
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -1184,8 +1184,13 @@
+ 	 * is a reserved field on the end, so for the most part, we can
+ 	 * treat them as if they were identical. Reverse-endian Mach-O
+ 	 * binaries are recognized but not compatible.
+ 	 */
++	/* NABU: every userland exec shows up here; without this the console goes
++	 * silent once launchd starts spawning jobs. */
++	printf("NABU EXEC: pid=%d name=%s\n", proc_getpid(p),
++	    (imgp->ip_ndp != NULL) ? imgp->ip_ndp->ni_cnd.cn_nameptr : "?");
++
+ 	if ((mach_header->magic == MH_CIGAM) ||
+ 	    (mach_header->magic == MH_CIGAM_64)) {
+ 		error = EBADARCH;
+ 		goto bad;
