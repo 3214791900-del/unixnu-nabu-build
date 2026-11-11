@@ -41,8 +41,8 @@
 +	void *prop = NULL;
 +	unsigned int len = 0;
 +
-+	if (DTLookupEntry(NULL, "/chosen", &chosen) == kSuccess &&
-+	    DTGetProperty(chosen, "ignition-blob", &prop, &len) == kSuccess &&
++	if (SecureDTLookupEntry(NULL, "/chosen", &chosen) == kSuccess &&
++	    SecureDTGetProperty(chosen, "ignition-blob", &prop, &len) == kSuccess &&
 +	    prop != NULL && len > 0) {
 +		if (len > NABU_IGNITION_MAX) {
 +			len = NABU_IGNITION_MAX;
