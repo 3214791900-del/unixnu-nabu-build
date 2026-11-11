@@ -123,6 +123,16 @@ for tool in llvm lld mtools dtc unifdef ninja; do
   brew list "$tool" >/dev/null 2>&1 || brew install "$tool"
 done
 
+echo "=== 6b. seed the DriverKit header cache"
+# prepare-xnu-source.py asks api.github.com for two directory listings; anonymous
+# calls from hosted runners hit HTTP 403. The listings are committed under
+# ci-cache and copied into the tree cache so the script skips the API calls.
+if [ -d "$WORK/ci-cache" ]; then
+  mkdir -p unixnu/out/nabu/tree/.cache/sources
+  cp -f "$WORK"/ci-cache/*.json unixnu/out/nabu/tree/.cache/sources/ 2>/dev/null || true
+  ls -la unixnu/out/nabu/tree/.cache/sources || true
+fi
+
 echo "=== 7. build kernel"
 export UNIXNU_DEVICE="$WORK/nabu-device"
 echo "UNIXNU_DEVICE=$UNIXNU_DEVICE"
