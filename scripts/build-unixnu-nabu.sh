@@ -31,6 +31,26 @@ git clone --depth 1 https://github.com/zzweiqing/hackios-mac-batch.git batch
 cp -R batch/source-ci ./source-ci
 cp -R nabu-device/source-ci/. ./source-ci/
 
+echo "=== 2b. reset board.toml to the bootstrap base"
+# The published board.toml describes the proven GPU profile. prepare_source.py
+# rewrites it from the unmodified bootstrap state, so restore that first.
+cat > reset_board.py <<'PY'
+import pathlib, re
+p = pathlib.Path('nabu-device/board.toml')
+t = p.read_text()
+t = re.sub(r'defconfig = "[^"]+"', 'defconfig = "nabu_bootstrap_defconfig"', t, count=1)
+replacement = ('archives = [\n'
+               '  "build-corecrypto-14.py",\n'
+               '  "build-corecrypto-14.py --namespace",\n'
+               '  "build-nabu-platform.py ArmDTPlatform",\n'
+               '  "build-nabu-platform.py ArmCpu",\n'
+               '  "build-libpthread-kernel.py",\n'
+               ']')
+t = re.sub(r'archives = \[[^\]]*\]', replacement, t, count=1, flags=re.S)
+p.write_text(t)
+print('board.toml reset to bootstrap')
+PY
+python3 reset_board.py
 echo "=== 3. Apple IPSW -> small input"
 if [ ! -f ipsw-small.zip ]; then
   if [ ! -s ipsw.ipsw ]; then
