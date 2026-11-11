@@ -111,7 +111,7 @@ python3 source-ci/prepare_source.py \
 
 echo "=== 6. host tools"
 export HOMEBREW_NO_AUTO_UPDATE=1
-for tool in llvm lld mtools dtc unifdef; do
+for tool in llvm lld mtools dtc unifdef ninja; do
   brew list "$tool" >/dev/null 2>&1 || brew install "$tool"
 done
 
