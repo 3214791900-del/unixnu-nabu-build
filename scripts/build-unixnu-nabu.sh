@@ -9,7 +9,7 @@
 # the four members the kernel build needs and drops the rest.
 set -euo pipefail
 
-UNIXNU_REF="${UNIXNU_REF:-245aca1a9ec5b730b1cad80fade295800d2981f1}"
+UNIXNU_REF="${UNIXNU_REF:-6b24c06ce487e8c48105b7b4635d0d97f7ec6cdd}"
 PROFILE="${PROFILE:-nabu_ufs_readonly_defconfig}"
 IPSW_URL="${IPSW_URL:-https://updates.cdn-apple.com/2024FallFCS/fullrestores/062-78914/A081E8C4-D00A-4FC5-A650-A42EA1726236/iPad_10.2_17.7_21H16_Restore.ipsw}"
 WORK="${CM_BUILD_DIR:-$PWD}"
