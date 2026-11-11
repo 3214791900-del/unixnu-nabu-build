@@ -87,6 +87,8 @@ for tool in llvm lld mtools dtc unifdef; do
 done
 
 echo "=== 7. build kernel"
+export UNIXNU_DEVICE="$WORK/nabu-device"
+echo "UNIXNU_DEVICE=$UNIXNU_DEVICE"
 cd unixnu
 ./unixnu defconfig "$PROFILE" 2>&1 | tail -20
 ./unixnu build kernel 2>&1 | tail -60
