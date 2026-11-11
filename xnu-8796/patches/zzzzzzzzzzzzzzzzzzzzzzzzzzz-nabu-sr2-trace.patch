@@ -1,0 +1,14 @@
+--- a/bsd/vm/vm_unix.c
++++ b/bsd/vm/vm_unix.c
+@@ -2887,8 +2887,11 @@
+ 
+ 	files_count = uap->files_count;
+ 	mappings_count = uap->mappings_count;
+ 
++	printf("NABU SR2: pid=%d(%s) files=%u mappings=%u\n",
++	    proc_getpid(p), p->p_comm, files_count, mappings_count);
++
+ 	if (files_count == 0) {
+ 		SHARED_REGION_TRACE_INFO(
+ 			("shared_region: %p [%d(%s)] map(): "
+ 			"no files\n",
