@@ -162,9 +162,17 @@ cp -R fakeroot/System/Library/Kernels/. ../out/ 2>/dev/null || true
 ls -la ../out 2>/dev/null || true
 (cd ../out && shasum -a 256 kernel.* 2>/dev/null) || true
 
-if [ -f ../out/kernel.development.nabu ]; then
+# The kernel name follows KERNEL_CONFIG, so accept DEVELOPMENT, RELEASE or any
+# other variant instead of hard-coding one.
+built=""
+for candidate in ../out/kernel.*.nabu; do
+	[ -f "$candidate" ] || continue
+	built="$candidate"
+	break
+done
+if [ -n "$built" ]; then
 	log "SUCCESS"
-	echo "kernel: $WORK/out/kernel.development.nabu"
+	echo "kernel: $WORK/out/$(basename "$built")"
 else
 	log "no kernel produced"
 	exit 1
