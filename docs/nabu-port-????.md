@@ -785,3 +785,194 @@ GX 供电：GMU 控制，CPU 写 = 冻机
 | OK 但 size 很小 | 文件空（制作时没拷）| 重新制作系统卷 |
 | OK 但 2-3 GB | 文件在，读/映射失败 | 改 HFS 大文件支持或分块 |
 | DESC 报签名 | 签名校验 | 改校验逻辑 |
+
+---
+
+## 附录 H：黑屏真因与点火序列（2026-11-11）
+
+### H.1 dyld 共享缓存不在根文件系统里
+
+iPadOS 16/17 把 dyld 共享缓存放在 **IPSW 的第二个成员**（cryptex/preboot 内容），
+不在根文件系统的 `/System/Library/Caches/com.apple.dyld/` 里。
+
+缺它的后果：`launchd_cache_loader` 加载失败（OS_REASON_DYLD）→ 用户态全灭 → 黑屏。
+
+**处理办法**（我们已做）：
+```
+7z x 096-03936-078.dmg "System/Library/Caches/com.apple.dyld/*"    # 50 个文件 / 2.4 GB
+guestfish: tar-in 进 HFS 根镜像
+刷入 userdata
+```
+开机日志验证：
+```
+libignition: dyld_cache: opened shared cache directory: /System/Library/Caches/com.apple.dyld/
+libignition: goodbye: ignition sequence complete
+```
+
+### H.2 ignition（点火）的等级机制
+
+libignition 按 `ignition_level` 分级执行，等级不够的阶段直接跳过：
+
+| 阶段 | 最低等级 |
+|---|---|
+| dyld_cache（定位并加载共享缓存）| 1 |
+| preboot（挂载 /private/preboot）| 2 |
+| cryptex1 sniff（探测系统 cryptex）| 2 |
+| graft（嫁接 cryptex）| 3 |
+| select os cryptex path | 3 |
+
+实测三档：
+
+| 等级 | 结果 |
+|---|---|
+| 0 | 全部跳过 → `library not loaded: /usr/lib/libSystem.B.dylib` |
+| 5（默认）| 先跑 preboot → 无 preboot 分区（error 25）→ 点火整体失败 |
+| **1** | 跳过 preboot/cryptex，dyld_cache 成功 → **点火完成** ✅ |
+
+### H.3 KGSL 寄存器下标 vs 字节偏移（GPU 必读）
+
+`a6xx_reg.h` 里 `A6XX_GMU_CM3_SYSRESET = 0x1F800` 是**第几个 32 位字**：
+
+```
+真实地址 = GPU 寄存器基址 + 下标 × 4
+         = 0x02C00000 + 0x1F800 × 4
+         = 0x02C7E000
+```
+
+按字节偏移访问 0x1D3F8 会落进未映射区 → **总线挂死**（我们踩过）。
+
+常用地址换算（SM8150 / A640）：
+
+| 寄存器 | 下标 | 真实地址 |
+|---|---|---|
+| CM3_SYSRESET | 0x1F800 | 0x02C7E000 |
+| CM3_FW_INIT_RESULT | 0x1F81C | 0x02C7E070 |
+| CM3_BOOT_CONFIG | 0x1F801 | 0x02C7E004 |
+| CM3_CFG | 0x1F82D | 0x02C7E0B4 |
+| ITCM 起始 | 0x1B400 | 0x02C6D000 |
+| DTCM 起始 | 0x1C400 | 0x02C71000 |
+
+GMU 启动成功标志：`CM3_FW_INIT_RESULT == 0xBABEFACE`。
+
+---
+
+## 附录 I：参考实现（已跑通桌面）
+
+### I.1 社区移植（UniXNU 官方收录）
+
+设备页：`https://unixnu.com/devices/models/nabu`，共 6 个仓库。
+其中 `zzweiqing/UniXNU-nabu` 已达：
+
+```
+八核 + SGI IPI（130 万次零失败）
+UFS 根卷（OS + SystemOS 窗口）
+NT36523 触摸
+GOP 帧缓冲 + A640 GPU 合成
+Metal 前端（metal2vulkan + Turnip）
+★ 实机演示过可交互 SpringBoard 桌面
+已知问题：前几帧后偶发扫描输出卡住（补丁已打包未验证）
+```
+
+### I.2 硬件参数（他们验证过的）
+
+```
+GPU MMIO   0x02c00000    GMU 0x02c6a000    RSCC 0x02c8d000
+GPU SMMU   0x02ca0000    GPUCC 0x02c90000  GCC 0x00100000
+Adreno 640 v2，chip-id 0x06040001，GMEM 1 MiB
+固件 a630_sqe.fw / a640_gmu.bin / a640_zap.{mdt,b02}
+```
+
+### I.3 开源组件（UniXNU 组织）
+
+| 仓库 | 作用 |
+|---|---|
+| Adreno740 | 原生 XNU Adreno GPU 驱动（系列基础）|
+| AdrenoMetal | Metal 前端（metal2vulkan + Turnip）|
+| AdrenoFirmware | GMU 固件 + HFI 套件 |
+| AdrenoPM4 | PM4 命令包编码 |
+| AirNir | 着色器编译器（AIR→NIR→IR3）|
+| GopFramebuffer | 显示交接 |
+| ArmSmmu4K | SMMUv2 4K 页表 |
+
+移植先例：`xVanTuring/Adreno650`（SM8250）、`Adreno610`（SM6225）——
+说明 A640 也能按同法移植（同属 a6xx 家族）。
+
+### I.4 他们的启动方式（与我们不同）
+
+```
+ESP 分区（nabu 上 /dev/block/sda31，约 334 MiB）
+  ├─ rEFInd
+  └─ /EFI/UniXNU/{UniXNU.efi, Drivers/DarwinBoot.efi, unixnu.toml}
+       └─ Payloads/kernel.macho + .adt + .trustcache
+→ 原厂 UEFI → rEFInd → UniXNU → DarwinBoot → 内核
+```
+
+写入需要 **Android + root 的 adb**（`su -c 'sh install.sh install <stage>'`）。
+
+---
+
+## 附录 J：复刻构建与现成文件（2026-11-11）
+
+### J.1 构建输入（用户自备，不入库）
+
+```
+ipsw-21h16-small.zip = 从 iPadOS 17.7 (21H16, iPad7,11) IPSW 提取 4 个成员：
+  kernelcache.release.ipad7c      2c395d03d21129d79f4ad9648fe30b1dd8fc62b17f180b79976604102a4678ba
+  DeviceTree.j171ap.im4p          1d5ce5ee967b98df2b0017931d3a18b77add92f8902b42b12061ab5e21fd0ebb
+  044-17597-018.dmg.trustcache    7640ab0933ba6a9048b6de8cf7e1e0d4806350c5eb2ccb3bc1284b79b1499e2d
+  044-18090-018.dmg.trustcache    381d0eeb39949a4ed9cbca7f89ae3442fa37e9afcaaa5f1314465b43aaa46ea4
+
+提取命令：
+python3 source-ci/prepare_ipsw_input.py --ipsw <IPSW> --output ipsw-21h16-small.zip
+```
+
+IPSW 直链（苹果 CDN，国内可下，实测 20 MB/s，云端 140-200 MB/s）：
+```
+https://updates.cdn-apple.com/2024FallFCS/fullrestores/062-78914/A081E8C4-D00A-4FC5-A650-A42EA1726236/iPad_10.2_17.7_21H16_Restore.ipsw
+```
+
+### J.2 构建命令（他们 CI 的核心）
+
+```bash
+git clone --no-checkout https://github.com/UniXNU/UniXNU.git unixnu
+git -C unixnu fetch origin 245aca1a9ec5b730b1cad80fade295800d2981f1
+git -C unixnu checkout --detach 245aca1a9ec5b730b1cad80fade295800d2981f1
+
+export UNIXNU_IPSW=$PWD/ipsw-21h16-small.zip
+python3 source-ci/prepare_source.py --upstream unixnu --device nabu-device \
+        --profile nabu_bootstrap_defconfig --report report.json
+
+brew install llvm lld mtools dtc unifdef
+cd unixnu && ./unixnu defconfig nabu_bootstrap_defconfig && ./unixnu build kernel
+```
+
+**注意**：设备仓库发布的 `board.toml` 是 GPU 配置状态；若要编 bootstrap，
+必须先把三处改回：`defconfig`、`archives`、`[kernel.prelink] roots`
+（以及删掉 `early_security_init`），否则 `prepare_source.py` 会拒绝。
+
+### J.3 现成文件（ready/ 目录）
+
+| 文件 | 大小 | 用途 |
+|---|---|---|
+| kernel.macho | 58 MB | 他们验证过的内核 |
+| bootstrap.apfs | 65 MB | 配套启动包 |
+| boot-chain/UniXNU.efi | 90 KB | 启动管理器 |
+| boot-chain/DarwinBoot.efi | 40 KB | 内核加载器 |
+| trustcache/*.trustcache | 60 KB | 信任缓存（哈希已验）|
+| kernelcache/* | 15.5 MB | iPadOS 17.7 内核缓存 + 设备树 |
+| ipsw-21h16-small.zip | 15 MB | 构建输入 |
+
+### J.4 还缺什么才能进苹果系统
+
+```
+① kernel.macho.adt（设备树）——构建时自动生成，或单独用工具生成
+② iPadOS 完整系统卷（APFS，卷名必须是 nabu_os）
+③ ESP 引导环境（rEFInd + UniXNU）——需要 Android + root 写入
+```
+
+### J.5 我们的两条并行路线
+
+| 路线 | 状态 | 说明 |
+|---|---|---|
+| A：自己的 shim + HFS + 自编内核 | 点火完成，卡在共享缓存映射 | 自主但 GPU 是死结 |
+| B：复刻 UniXNU（他们已验证）| 正在打通构建 | 有桌面先例，缺部署环境 |
