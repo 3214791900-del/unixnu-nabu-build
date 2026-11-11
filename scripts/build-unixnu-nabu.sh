@@ -128,7 +128,18 @@ export UNIXNU_DEVICE="$WORK/nabu-device"
 echo "UNIXNU_DEVICE=$UNIXNU_DEVICE"
 cd unixnu
 ./unixnu defconfig "$PROFILE" 2>&1 | tail -20
-./unixnu build kernel 2>&1 | tail -60
+if ! ./unixnu build kernel 2>&1 | tail -40; then
+  echo "=== kernel build failed; real errors follow ==="
+  for log in out/nabu/logs/kernel-bootstrap.log out/nabu/logs/kernel.log; do
+    if [ -f "$log" ]; then
+      echo "--- $log (errors) ---"
+      grep -nE "error:|Error [0-9]|\*\*\*|undefined|No such file" "$log" | tail -40 || true
+      echo "--- $log (tail) ---"
+      tail -30 "$log"
+    fi
+  done
+  exit 1
+fi
 
 echo "=== 8. results"
 find . -name "kernel.macho*" -o -name "*.adt" -o -name "*.trustcache" 2>/dev/null | head -40
