@@ -4,34 +4,30 @@
 # need a billing method, so this workflow drives the same one-shot script that
 # a rented Mac would run. Free tier: 500 macOS minutes/month.
 #
-# Connect the repo at https://codemagic.io, pick "codemagic.yaml" as the
-# configuration source, and press Start new build.
+# The kernel build emits far more warnings than Codemagic keeps in a step log
+# (8 MB), so the script's output goes to a file and only the errors are echoed.
 
 workflows:
   nabu-xnu:
     name: XNU 8796 for nabu
     instance_type: mac_mini_m1
-    max_build_duration: 120
+    max_build_duration: 180
     environment:
       vars:
         # xnu-8796.141.3 is the tag that matches the iPadOS 16.6.1 userland.
         MACOS_VERSION: "13.5"
-        JOBS: "2"
         KERNEL_CONFIG: "RELEASE"
         MACHINE_CONFIG: "NABU"
-    cache:
-      cache_paths:
-        - $HOME/Library/Caches/Homebrew
+        JOBS: "2"
     scripts:
       - name: Toolchain check
         script: |
-          set -e
           sw_vers
           /usr/bin/xcodebuild -version || true
           ls -1 /Applications | grep -i xcode || true
+          df -h / | tail -1
       - name: Install missing tools
         script: |
-          set -e
           for tool in jq ninja cmake gum; do
             command -v "$tool" >/dev/null 2>&1 || brew install "$tool" || true
           done
@@ -39,28 +35,29 @@ workflows:
       - name: Build kernel
         script: |
           cd "$CM_BUILD_DIR"
-          bash scripts/build-on-mac.sh || rc=$?
-          if [ "${rc:-0}" != "0" ]; then
-            echo "=== BUILD FAILED (rc=$rc) ==="
-            for f in build.log work/dxb/build.log unixnu-nabu-build/build.log; do
-              if [ -f "$f" ]; then
-                echo "--- $f : unique errors ---"
-                grep -a -E "error:|\\*\\*\\* \\[|Undefined symbols|clang: error|ld: " "$f" | sort -u | head -40
-              fi
-            done
+          bash scripts/build-on-mac.sh > "$CM_BUILD_DIR/build-console.log" 2>&1 || rc=$?
+          rc=${rc:-0}
+          echo "=== build exited with rc=$rc ==="
+          echo "=== build log size: $(wc -c < "$CM_BUILD_DIR/build-console.log") bytes ==="
+          if [ "$rc" != "0" ]; then
+            echo "=== unique compile errors ==="
+            grep -a -E ": error: |\*\*\* \[|Undefined symbols|ld: error|clang: error" "$CM_BUILD_DIR/build-console.log" \
+              | grep -a -v "patch" | sort -u | head -40
+            echo "=== last 6 kB of the log ==="
+            tail -c 6000 "$CM_BUILD_DIR/build-console.log"
             exit 1
           fi
       - name: Collect artifacts
         script: |
-          set -e
           mkdir -p build-artifacts
-          find . -name "kernel.development.nabu" -exec cp {} build-artifacts/ \; || true
+          find . -name "kernel.*.nabu" -exec cp {} build-artifacts/ \; || true
           find build-artifacts -type f -exec shasum -a 256 {} \; || true
           ls -la build-artifacts
     artifacts:
       - build-artifacts/**
       - unixnu-nabu-build/out/**
       - out/**
+      - build-console.log
 
   probe-xcode:
     name: probe xcode versions
@@ -69,16 +66,6 @@ workflows:
     scripts:
       - name: list xcodes
         script: |
-          echo "=== macOS ==="
           sw_vers
-          echo "=== installed Xcodes ==="
           ls -1 /Applications | grep -i xcode || true
-          echo "=== active ==="
           /usr/bin/xcodebuild -version || true
-          echo "=== every Xcode bundle ==="
-          for app in /Applications/Xcode*.app; do
-            echo "$app"
-            "$app/Contents/Developer/usr/bin/xcodebuild" -version 2>/dev/null || true
-          done
-          echo "=== xcodes tool ==="
-          (command -v xcodes && xcodes list 2>/dev/null | head -30) || echo "no xcodes tool"
