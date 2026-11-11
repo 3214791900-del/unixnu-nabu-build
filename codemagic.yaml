@@ -69,3 +69,33 @@ workflows:
           sw_vers
           ls -1 /Applications | grep -i xcode || true
           /usr/bin/xcodebuild -version || true
+
+  unixnu-nabu:
+    name: UniXNU nabu kernel
+    instance_type: mac_mini_m1
+    max_build_duration: 120
+    environment:
+      vars:
+        UNIXNU_REF: "245aca1a9ec5b730b1cad80fade295800d2981f1"
+        PROFILE: "nabu_ufs_readonly_defconfig"
+    scripts:
+      - name: Toolchain check
+        script: |
+          sw_vers
+          /usr/bin/xcodebuild -version || true
+          df -h / | tail -1
+      - name: Build UniXNU nabu kernel
+        script: |
+          cd "$CM_BUILD_DIR"
+          bash scripts/build-unixnu-nabu.sh > "$CM_BUILD_DIR/unixnu-build.log" 2>&1 || rc=$?
+          rc=${rc:-0}
+          echo "=== unixnu build exited with rc=$rc ==="
+          tail -n 120 "$CM_BUILD_DIR/unixnu-build.log"
+          if [ "$rc" != "0" ]; then exit 1; fi
+    artifacts:
+      - unixnu-build.log
+      - unixnu/out/**
+      - "**/kernel.macho"
+      - "**/*.adt"
+      - "**/*.trustcache"
+      - source-prepare.json
