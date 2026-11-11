@@ -47,6 +47,10 @@ replacement = ('archives = [\n'
                '  "build-libpthread-kernel.py",\n'
                ']')
 t = re.sub(r'archives = \[[^\]]*\]', replacement, t, count=1, flags=re.S)
+# prelink closure: bootstrap only prelinks APFS and has no security initializer
+t = re.sub(r'^early_security_init = .*\n', '', t, flags=re.M)
+t = re.sub(r'roots = \[[^\]]*\]',
+           'roots = [\n  "com.apple.filesystems.apfs",\n]', t, count=1, flags=re.S)
 p.write_text(t)
 print('board.toml reset to bootstrap')
 PY
