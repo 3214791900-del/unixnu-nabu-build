@@ -249,7 +249,7 @@
 +		vp = NULLVP;
 +		error = vnode_lookup(paths[i], 0, &vp, vfs_context_current());
 +		if (error == 0 && vp != NULLVP) {
-+			vnode_attr va;
++			struct vnode_attr va;
 +			VATTR_INIT(&va);
 +			VATTR_WANTED(&va, va_data_size);
 +			if (vnode_getattr(vp, &va, vfs_context_current()) == 0) {
