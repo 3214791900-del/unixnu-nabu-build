@@ -1,24 +1,13 @@
 --- a/bsd/kern/kern_exit.c
 +++ b/bsd/kern/kern_exit.c
-@@ -1797,8 +1797,22 @@
+@@ -1797,8 +1797,11 @@
  	} else {
  		printf("pid %d exited -- exit reason namespace %d subcode 0x%llx, description %s\n", proc_getpid(p),
  		    p->p_exit_reason->osr_namespace, p->p_exit_reason->osr_code, exit_reason_desc ?
  		    exit_reason_desc : "none");
-+		/*
-+		 * NABU: the console has no scrolling, so this message is invisible
-+		 * once the screen fills. Put it on the framebuffer as well.
-+		 */
-+		{
-+			extern void nabu_fb_panic(const char *title, const char *detail);
-+			char diag[128];
-+			snprintf(diag, sizeof(diag), "%s ns=%d code=%d desc=%.80s",
-+			    p->p_name, p->p_exit_reason->osr_namespace,
-+			    p->p_exit_reason->osr_code,
-+			    exit_reason_desc ? exit_reason_desc : "none");
-+			nabu_fb_panic("NABU EXIT REASON", diag);
-+			printf("NABU EXIT: %s\n", diag);
-+		}
++		printf("NABU EXIT: %s ns=%d code=%d desc=%.80s\n", p->p_name,
++		    p->p_exit_reason->osr_namespace, p->p_exit_reason->osr_code,
++		    exit_reason_desc ? exit_reason_desc : "none");
  	}
  
  	const char *prefix_str;
