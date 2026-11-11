@@ -22,6 +22,10 @@ echo "=== 1. device repository"
 rm -rf nabu-device
 git clone --depth 1 https://github.com/zzweiqing/UniXNU-nabu.git nabu-device
 
+echo "=== 1b. retarget the device trust-cache patch"
+# Upstream XNU gained a longer VM_KASAN context line; rewrite the hunk so it
+# applies cleanly instead of relying on patch fuzz.
+python3 scripts/fix-nabu-trustcache-patch.py nabu-device/patches/xnu/nabu-master-second-trust-cache.patch || true
 echo "=== 2. source-ci helpers"
 # prepare_source.py and the qualification scripts come from the batch repository,
 # prepare_ipsw_input.py and the board patches from the device repository; the
