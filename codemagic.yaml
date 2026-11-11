@@ -1,0 +1,55 @@
+# Codemagic CI for the nabu XNU port.
+#
+# AppVeyor kills every macOS build after ~10 minutes and GitHub's macOS runners
+# need a billing method, so this workflow drives the same one-shot script that
+# a rented Mac would run. Free tier: 500 macOS minutes/month.
+#
+# Connect the repo at https://codemagic.io, pick "codemagic.yaml" as the
+# configuration source, and press Start new build.
+
+workflows:
+  nabu-xnu:
+    name: XNU 8796 for nabu
+    instance_type: mac_mini_m1
+    max_build_duration: 120
+    environment:
+      xcode: 15.2
+      vars:
+        # xnu-8796.141.3 is the tag that matches the iPadOS 16.6.1 userland.
+        MACOS_VERSION: "13.5"
+        KERNEL_CONFIG: "DEVELOPMENT"
+        MACHINE_CONFIG: "NABU"
+    cache:
+      cache_paths:
+        - $HOME/Library/Caches/Homebrew
+    scripts:
+      - name: Toolchain check
+        script: |
+          set -e
+          xcodebuild -version
+          xcrun --sdk macosx --show-sdk-version
+          sw_vers
+          which jq ninja cmake python3 || true
+      - name: Install missing tools
+        script: |
+          set -e
+          for tool in jq ninja cmake; do
+            command -v "$tool" >/dev/null 2>&1 || brew install "$tool" || true
+          done
+          command -v jq || brew install jq
+      - name: Build kernel
+        script: |
+          set -e
+          cd "$CM_BUILD_DIR"
+          bash scripts/build-on-mac.sh
+      - name: Collect artifacts
+        script: |
+          set -e
+          mkdir -p build-artifacts
+          find . -name "kernel.development.nabu" -o -name "kernel.*.nabu" | head -20
+          find . -name "kernel.development.nabu" -exec cp {} build-artifacts/ \; || true
+          ls -la build-artifacts
+    artifacts:
+      - build-artifacts/**
+      - unixnu-nabu-build/out/**
+      - out/**

@@ -1,0 +1,60 @@
+--- a/security/mac_base.c
++++ b/security/mac_base.c
+@@ -123,8 +123,57 @@
+ SYSCTL_NODE(, OID_AUTO, security, CTLFLAG_RW | CTLFLAG_LOCKED, 0,
+     "Security Controls");
+ SYSCTL_EXTENSIBLE_NODE(_security, OID_AUTO, mac, CTLFLAG_RW | CTLFLAG_LOCKED, 0,
+     "TrustedBSD MAC policy controls");
++
++/* ---- NABU: Image4 ignition blob -----------------------------------------
++ *
++ * libSystem's ignition code asks the kernel for the boot manifest through
++ * security.mac.img4.ignition_blob. Real devices get that from iBoot; on nabu
++ * it is carried in the device tree (/chosen/ignition-blob) so the payload
++ * builder can change it without rebuilding the kernel.
++ */
++#include <pexpert/device_tree.h>
++#include <kern/startup.h>
++
++#define NABU_IGNITION_MAX 8192
++
++static uint8_t  nabu_ignition_blob[NABU_IGNITION_MAX];
++static uint32_t nabu_ignition_blob_len;
++
++static int
++nabu_sysctl_ignition_blob SYSCTL_HANDLER_ARGS
++{
++	return sysctl_handle_opaque(oidp, nabu_ignition_blob,
++	    (int)nabu_ignition_blob_len, req);
++}
++
++SYSCTL_NODE(_security_mac, OID_AUTO, img4, CTLFLAG_RW | CTLFLAG_LOCKED, 0,
++    "Image4 policy controls");
++SYSCTL_PROC(_security_mac_img4, OID_AUTO, ignition_blob,
++    CTLTYPE_OPAQUE | CTLFLAG_RD | CTLFLAG_LOCKED, NULL, 0,
++    nabu_sysctl_ignition_blob, "S,ignition", "Image4 ignition blob");
++
++static void
++nabu_ignition_init(void)
++{
++	DTEntry chosen = NULL;
++	void *prop = NULL;
++	unsigned int len = 0;
++
++	if (DTLookupEntry(NULL, "/chosen", &chosen) == kSuccess &&
++	    DTGetProperty(chosen, "ignition-blob", &prop, &len) == kSuccess &&
++	    prop != NULL && len > 0) {
++		if (len > NABU_IGNITION_MAX) {
++			len = NABU_IGNITION_MAX;
++		}
++		memcpy(nabu_ignition_blob, prop, len);
++		nabu_ignition_blob_len = len;
++	}
++	printf("NABU IGNITION: blob %u bytes\n", nabu_ignition_blob_len);
++}
++STARTUP(EARLY_BOOT, STARTUP_RANK_LAST, nabu_ignition_init);
++
+ 
+ /*
+  * Declare that the kernel provides MAC support, version 1.  This permits
+  * modules to refuse to be loaded if the necessary support isn't present,
