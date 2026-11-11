@@ -77,6 +77,8 @@ echo "=== 4b. teach this revision the 'soc' feed kind"
 # The device feeds declare a "soc" source kind; this revision predates it.
 python3 - <<'PY'
 import pathlib
+
+# 1) the feed parser's accepted kinds
 p = pathlib.Path('unixnu/scripts/unixnu/config.py')
 t = p.read_text()
 old = "'refer': 'refer'}"
@@ -85,7 +87,19 @@ if old in t and "'soc'" not in t:
     p.write_text(t.replace(old, new, 1))
     print('config.py: soc kind added')
 else:
-    print('config.py: soc kind already present or anchor missing')
+    print('config.py: already patched or anchor missing')
+
+# 2) the tree assembler's kind -> directory table
+for name in ('unixnu/scripts/unixnu/tree.py',):
+    p = pathlib.Path(name)
+    t = p.read_text()
+    old = "{'driver': 'drivers', 'kit': 'kits', 'patch': 'patches', 'refer': 'refer'}"
+    new = "{'driver': 'drivers', 'kit': 'kits', 'patch': 'patches', 'refer': 'refer', 'soc': 'socs'}"
+    if old in t:
+        p.write_text(t.replace(old, new, 1))
+        print(name + ': soc kind added')
+    else:
+        print(name + ': anchor missing, left as is')
 PY
 
 echo "=== 5. assemble the source tree"
