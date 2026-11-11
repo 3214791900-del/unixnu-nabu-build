@@ -102,6 +102,10 @@ for name in ('unixnu/scripts/unixnu/tree.py',):
         print(name + ': anchor missing, left as is')
 PY
 
+echo "=== 4c. relax the upstream XNU patch loop"
+# The device series predates a context change in config/MASTER.arm64, and a
+# patch that is already in the tree must not be fatal.
+bash scripts/patch-upstream-xnu-series.sh unixnu || true
 echo "=== 5. assemble the source tree"
 python3 source-ci/prepare_source.py \
   --upstream unixnu \
