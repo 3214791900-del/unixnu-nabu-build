@@ -1,0 +1,32 @@
+--- a/bsd/vm/vm_unix.c
++++ b/bsd/vm/vm_unix.c
+@@ -2708,8 +2708,11 @@
+ 	struct _sr_file_mappings        *sr_file_mappings = NULL;
+ 	struct vnode                    *rdir_vp = NULL;
+ 	struct vm_shared_region         *shared_region = NULL;
+ 
++	printf("NABU SR: pid=%d(%s) files=%u mappings=%u\n",
++	    proc_getpid(p), p->p_comm, files_count, mappings_count);
++
+ 	/*
+ 	 * Get a reference to the current proc's root dir.
+ 	 * Need this to prevent racing with chroot.
+ 	 */
+@@ -2727,15 +2730,17 @@
+ 	 */
+ 	error = shared_region_map_and_slide_setup(p, files_count,
+ 	    files, mappings_count, mappings,
+ 	    &sr_file_mappings, &shared_region, rdir_vp);
++	printf("NABU SR: setup error=%d\n", error);
+ 	if (error != 0) {
+ 		vnode_put(rdir_vp);
+ 		return error;
+ 	}
+ 
+ 	/* map the file(s) into that shared region's submap */
+ 	kr = vm_shared_region_map_file(shared_region, files_count, sr_file_mappings);
++	printf("NABU SR: map_file kr=0x%x setup_ok\n", kr);
+ 	if (kr != KERN_SUCCESS) {
+ 		SHARED_REGION_TRACE_ERROR(("shared_region: %p [%d(%s)] map(): "
+ 		    "vm_shared_region_map_file() failed kr=0x%x\n",
+ 		    (void *)VM_KERNEL_ADDRPERM(current_thread()),
